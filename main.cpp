@@ -3,21 +3,27 @@
 #include<sstream>
 #include<list>
 
-const double gravity = 0.0005;
-const int ground_height = 32;
-const int ground_width = 32;
-const int map_tiles_y = 18;
-const int map_tiles_x = 80;
 int offsetX, offsetY;
+const double gravity = 0.0005;
+
 const int screen_width = 1500;
 const const int screen_height = 700;
+
 const float half_viewport_x = screen_width / 2;
 const float half_viewport_y = screen_height / 2;
-const float map_width = map_tiles_x * ground_width;
-const float map_height = map_tiles_y * ground_height;
 
-const char no_collision[] = "-fsh";
-const char map[map_tiles_y][map_tiles_x + 1] = {
+const int tile_ground_height = 32;
+const int tile_ground_width = 32;
+
+const int map_tiles_height = 18;
+const int map_tiles_width = 80;
+const int map_pixels_width = map_tiles_width * tile_ground_width;
+const int map_pixels_height = map_tiles_height * tile_ground_height;
+
+const char p1_spawn = 'f';
+const char p2_spawn = 's';
+const char no_collision_chars[] = { '-', 'h', p1_spawn, p2_spawn };
+char map[map_tiles_height][map_tiles_width + 1] = {
 	"--------------------------------------------------------------------------0-----",
 	"1------------------------------------------------------------------------0-----1",
 	"1-----------------------------------------------------------------------0------1",
@@ -27,7 +33,7 @@ const char map[map_tiles_y][map_tiles_x + 1] = {
 	"1-------------------------------------------------------------------0----------1",
 	"1------------------------------------------------------------------0-----------1",
 	"1-----------------------------------------------------------------0------------1",
-	"1-------------------------h--------------------------------------0-------------1",
+	"1----------------------------------------------------------------0-------------1",
 	"1---------------------------------00----------------------------0--------------1",
 	"1---------f-----------------------11-------------000000000000000--------s------1",
 	"1---------------------------------11------------0------------------------------1",
@@ -38,11 +44,11 @@ const char map[map_tiles_y][map_tiles_x + 1] = {
 	"10000000000000000010000000000000000000000000000000000000000000000000000000000001",
 };
 
-bool is_no_collision(char c)
+bool is_collision(char c)
 {
-	for (int i = 0; i < sizeof(no_collision) / sizeof(*no_collision); i++)
+	for (int i = 0; i < sizeof(no_collision_chars) / sizeof(*no_collision_chars); i++)
 	{
-		if (c == no_collision[i])
+		if (c == no_collision_chars[i])
 			return false;
 	}
 
@@ -283,12 +289,12 @@ public:
 	void update(double time)
 	{
 		this->position->left += b_speed * time;
-		for (int i = position->top / ground_height; i < (position->top + position->height) / ground_height; i++)
+		for (int i = position->top / tile_ground_height; i < (position->top + position->height) / tile_ground_height; i++)
 		{
-			for (int j = position->left / ground_width; j < (position->left + position->width) / ground_width; j++)
+			for (int j = position->left / tile_ground_width; j < (position->left + position->width) / tile_ground_width; j++)
 			{
-				if ((i >= 0 && i < map_tiles_y) && (j >= 0 && j < map_tiles_x))
-					if (is_no_collision(map[i][j]))
+				if ((i >= 0 && i < map_tiles_height) && (j >= 0 && j < map_tiles_width))
+					if (is_collision(map[i][j]))
 					{
 						b_damage = 0;
 					}
@@ -406,34 +412,34 @@ private:
 	double spawn_y;
 	void collision(char dir)
 	{
-		for (int i = position->top / ground_height; i < (position->top + position->height) / ground_height; i++)
+		for (int i = position->top / tile_ground_height; i < (position->top + position->height) / tile_ground_height; i++)
 		{
-			for (int j = position->left / ground_width; j < (position->left + position->width) / ground_width; j++)
+			for (int j = position->left / tile_ground_width; j < (position->left + position->width) / tile_ground_width; j++)
 			{
-				if ((i >= 0 && i < map_tiles_y) && (j >= 0 && j < map_tiles_x))
+				if ((i >= 0 && i < map_tiles_height) && (j >= 0 && j < map_tiles_width))
 				{
 					if (map[i][j] == 'h')
 						set_hp(10000);
 
-					if (is_no_collision(map[i][j]))
+					if (is_collision(map[i][j]))
 					{
 						if (dx > 0 && dir == 'x')
 						{
-							position->left = j * ground_width - position->width;
+							position->left = j * tile_ground_width - position->width;
 						}
 						if (dx < 0 && dir == 'x')
 						{
-							position->left = j * ground_width + ground_width;
+							position->left = j * tile_ground_width + tile_ground_width;
 						}
 						if (dy > 0 && dir == 'y')
 						{
-							position->top = i * ground_height - position->height;
+							position->top = i * tile_ground_height - position->height;
 							dy = 0;
 							on_ground = true;
 						}
 						if (dy < 0 && dir == 'y')
 						{
-							position->top = i * ground_height + ground_height;
+							position->top = i * tile_ground_height + tile_ground_height;
 							dy = 0;
 						}
 					}
@@ -612,17 +618,17 @@ public:
 void drawMap(sf::RenderWindow* mainWindow)
 {
 	//TODO move to resources
-	sf::RectangleShape ground_tile(sf::Vector2f(ground_width, ground_height));
+	sf::RectangleShape ground_tile(sf::Vector2f(tile_ground_width, tile_ground_height));
 	ground_tile.setTexture(resources->ground_texture);
-	sf::RectangleShape heal_tile(sf::Vector2f(ground_width, ground_height));
+	sf::RectangleShape heal_tile(sf::Vector2f(tile_ground_width, tile_ground_height));
 	heal_tile.setFillColor(sf::Color::Green);
 	//
-	for (int i = 0; i < map_tiles_y; i++)
+	for (int i = 0; i < map_tiles_height; i++)
 	{
-		for (int j = 0; j < map_tiles_x; j++)
+		for (int j = 0; j < map_tiles_width; j++)
 		{
-			float x = j * ground_width - offsetX;
-			float y = i * ground_height - offsetY;
+			float x = j * tile_ground_width - offsetX;
+			float y = i * tile_ground_height - offsetY;
 			if (map[i][j] == '0')
 			{
 				ground_tile.setTextureRect(sf::IntRect(515, 400, 256, 137));
@@ -759,13 +765,13 @@ void move_viewport_to(float x, float y)
 {
 	if (0 + half_viewport_x > x)
 		x = half_viewport_x;
-	else if (x > map_width - half_viewport_x)
-		x = map_width - half_viewport_x;
+	else if (x > map_pixels_width - half_viewport_x)
+		x = map_pixels_width - half_viewport_x;
 
 	offsetX = x - half_viewport_x;
 
-	if (map_height - half_viewport_y < y)
-		y = map_height - half_viewport_y;
+	if (map_pixels_height - half_viewport_y < y)
+		y = map_pixels_height - half_viewport_y;
 	//else if (y < 0 + half_viewport_y)
 	//	y = 0 + half_viewport_y;
 
@@ -775,17 +781,33 @@ void move_viewport_to(float x, float y)
 
 sf::Vector2f get_spawn_coordinates(char player_char)
 {
-	for (int i = 0; i < map_tiles_y; i++)
+	for (int i = 0; i < map_tiles_height; i++)
 	{
-		for (int j = 0; j < map_tiles_x; j++)
+		for (int j = 0; j < map_tiles_width; j++)
 		{
 			if (map[i][j] == player_char)
-				return sf::Vector2f(j * ground_width, i * ground_height);
+				return sf::Vector2f(j * tile_ground_width, i * tile_ground_height);
 		}
 
 	}
-	return sf::Vector2f(map_tiles_x / 2, 0);
+	return sf::Vector2f(map_tiles_width / 2, 0);
 }
+
+sf::Vector2i get_random_map_coordinate()
+{
+	bool collision = true;
+	int x, y;
+	do
+	{
+		x = rand() % map_tiles_width;
+		y = rand() % map_tiles_height;
+		collision = is_collision(map[y][x]);
+	} while (collision);
+	
+	return sf::Vector2i(x, y);
+}
+
+sf::Vector2i bonus_last_coords = get_random_map_coordinate();
 
 int main()
 {
@@ -795,8 +817,8 @@ int main()
 	BulletGenerator* gun1 = new MGBulletGenerator(100, 0.1);
 	BulletGenerator* gun2 = new MGBulletGenerator(100, 1);
 
-	Soldier* player1 = new Soldier(resources->player1, gun1, get_spawn_coordinates('f'));
-	Soldier* player2 = new Soldier(resources->player2, gun2, get_spawn_coordinates('s'));
+	Soldier* player1 = new Soldier(resources->player1, gun1, get_spawn_coordinates(p1_spawn));
+	Soldier* player2 = new Soldier(resources->player2, gun2, get_spawn_coordinates(p2_spawn));
 
 	KillManager* killManager = new KillManager();
 	killManager->subscribe(player1);
@@ -806,10 +828,12 @@ int main()
 
 	sf::Clock clock;
 	std::stringstream ss;
-	
+
 	bool p1_takes_viewport = true;
 	bool can_take_viewport = true;
-	
+
+	map[bonus_last_coords.y][bonus_last_coords.x] = 'h';
+
 	while (mainWindow.isOpen())
 	{
 
@@ -832,6 +856,9 @@ int main()
 			if (can_take_viewport)
 			{
 				p1_takes_viewport = !p1_takes_viewport;
+				map[bonus_last_coords.y][bonus_last_coords.x] = '-';
+				bonus_last_coords = get_random_map_coordinate();
+				map[bonus_last_coords.y][bonus_last_coords.x] = 'h';
 			}
 			can_take_viewport = false;
 		}
