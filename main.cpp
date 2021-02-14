@@ -18,24 +18,24 @@ const float map_width = map_tiles_x * ground_width;
 const float map_height = map_tiles_y * ground_height;
 
 const char map[map_tiles_y][map_tiles_x + 1] = {
-	"--------------------------------------------------------------------------------",
-	"1------------------------------------------------------------------------------1",
-	"1------------------------------------------------------------------------------1",
-	"1------------------------------------------------------------------------------1",
-	"1------------------------------------------------------------------------------1",
-	"1------------------------------------------------------------------------------1",
-	"1------------------------------------------------------------------------------1",
-	"1------------------------------------------------------------------------------1",
-	"1---------------------------------00-------------------------------------------1",
-	"1-------------------------h-------11-------------------------------------------1",
-	"1---------------------------------11-------------------------------------------1",
-	"1---------------------------------11-------------------------------------------1",
-	"1-----------------------------0000110000---------------------------------------1",
-	"1---------------------00----------11-------------------------------------------1",
-	"1--------00--------------------------------------------------------------------1",
-	"1-----------------0---------------00---------0---------------------------------1",
-	"1-----------------1---------------11---------1---------------------------------1",
-	"10000000000000000010000000000000001100000000010000000000000000000000000000000001",
+	"--------------------------------------------------------------------------0-----",
+	"1------------------------------------------------------------------------0-----1",
+	"1-----------------------------------------------------------------------0------1",
+	"1----------------------------------------------------------------------0-------1",
+	"1---------------------------------------------------------------------0--------1",
+	"1--------------------------------------------------------------------0---------1",
+	"1-------------------------------------------------------------------0----------1",
+	"1------------------------------------------------------------------0-----------1",
+	"1-----------------------------------------------------------------0------------1",
+	"1-------------------------h--------------------------------------0-------------1",
+	"1---------------------------------00----------------------------0--------------1",
+	"1---------------------------------11-------------000000000000000---------------1",
+	"1---------------------------------11------------0------------------------------1",
+	"1-----------------------------0000110000------00-------------------------------1",
+	"1--------00-----------000----0-------------------------------------------------1",
+	"1-----------------0------------------------------------------------------------1",
+	"1-----------------1------------------------------------------------------------1",
+	"10000000000000000010000000000000000000000000000000000000000000000000000000000001",
 };
 class Spritesheet
 {
@@ -43,20 +43,105 @@ public:
 	sf::Texture* texture;
 	sf::IntRect* texture_rect;
 	sf::Sprite* sprite;
-	int n_frames;
-	double cur_frame;
+	int n_running_frames;
+	int n_shooting_frames;
+	double cur_running_frame;
+	double cur_shooting_frame;
+
+	int texture_width;
+	int texture_height;
+	int texture_character_width;
+	int texture_shooting_width;
+	int spritesheet_idle_top;
+	int spritesheet_run_top;
+	int spritesheet_fire_top;
+	double running_animation_speed;
+	double shooting_animation_speed;
 	Spritesheet(sf::Texture* texture, int width, int height, int n_frames)
 	{
 		this->texture = texture;
 		this->texture_rect = new sf::IntRect(0, 0, width, height);
-		this->sprite = new sf::Sprite(*(this->texture));
-		this->n_frames = n_frames;
-		this->cur_frame = 0;
+		this->sprite = new sf::Sprite(*(texture));
+		this->n_running_frames = n_frames;
+		this->n_shooting_frames = 8;
+		this->cur_running_frame = 0;
+		this->cur_shooting_frame = 0;
+
+		this->texture_width = width;
+		this->texture_height = height;
+
+		this->texture_character_width = 42;
+		this->texture_shooting_width = 128;
+
+		this->spritesheet_run_top = 0;
+		this->spritesheet_fire_top = 87;
+		this->spritesheet_idle_top = 146;
+
+		this->running_animation_speed = 0.1;
+		this->shooting_animation_speed = 0.007;
+
 	}
 	~Spritesheet()
 	{
 		delete this->texture_rect;
 		delete this->sprite;
+	}
+	void idle(bool sight_left)
+	{
+		cur_running_frame = 0;
+		cur_shooting_frame = 0;
+		texture_rect->top = spritesheet_idle_top;
+
+		if (!sight_left)
+		{
+			texture_rect->left = 0;
+			texture_rect->width = texture_width;
+		}
+		if (sight_left)
+		{
+			texture_rect->left = texture_width;
+			texture_rect->width = -texture_width;
+		}
+	}
+	void run(bool sight_left, double dx, double time)
+	{
+		cur_shooting_frame = 0;
+		texture_rect->top = spritesheet_run_top;
+
+		cur_running_frame += abs(dx) * time * running_animation_speed;
+		if (cur_running_frame > n_running_frames)
+			cur_running_frame -= n_running_frames;
+
+		if (!sight_left)
+		{
+			texture_rect->left = int(cur_running_frame) * texture_width;
+			texture_rect->width = texture_width;
+		}
+		if (sight_left)
+		{
+			texture_rect->left = int(cur_running_frame) * texture_width + texture_width;
+			texture_rect->width = -texture_width;
+		}
+	}
+	void shoot(bool sight_left, double time)
+	{
+		cur_running_frame = 0;
+		texture_rect->top = spritesheet_fire_top;
+
+		cur_shooting_frame += time * shooting_animation_speed;
+		if (cur_shooting_frame > n_shooting_frames)
+			cur_shooting_frame -= n_shooting_frames;
+
+		if (sight_left)
+		{
+			texture_rect->width = -texture_shooting_width;
+			texture_rect->left = int(cur_shooting_frame) * texture_shooting_width + texture_shooting_width;
+		}
+		if (!sight_left)
+		{
+			texture_rect->width = texture_shooting_width;
+			texture_rect->left = int(cur_shooting_frame) * texture_shooting_width;
+		}
 	}
 };
 
@@ -78,11 +163,11 @@ public:
 		this->player1_spritesheet = new sf::Texture();
 		this->font = new sf::Font();
 
-		this->ground_texture->loadFromFile("ground1.png");
-		this->bullet_texture->loadFromFile("bullet.png");
-		this->player2_spritesheet->loadFromFile("enemy1.png");
-		this->player1_spritesheet->loadFromFile("player.png");
-		this->font->loadFromFile("arial.ttf");
+		this->ground_texture->loadFromFile("./assets/ground.png");
+		this->bullet_texture->loadFromFile("./assets/bullet.png");
+		this->player2_spritesheet->loadFromFile("./assets/player2.png");
+		this->player1_spritesheet->loadFromFile("./assets/player1.png");
+		this->font->loadFromFile("./assets/arial.ttf");
 
 		this->player1 = new Spritesheet(player1_spritesheet, 90, 55, 10);
 		this->player2 = new Spritesheet(player2_spritesheet, 90, 55, 10);
@@ -216,7 +301,11 @@ public:
 		this->b_damage = damage;
 		this->b_speed = flight_dir_left ? -speed : speed;
 		this->sprite = new sf::Sprite(*(resources->bullet_texture));
-		if (flight_dir_left) this->sprite->rotate(180);
+		if (flight_dir_left)
+		{
+			sf::IntRect rect = this->sprite->getTextureRect();
+			this->sprite->setTextureRect(sf::IntRect(rect.left + rect.width, rect.top, -rect.width, rect.height));
+		}
 		this->position = new sf::FloatRect(x_pos, y_pos, 4, 4);
 	}
 	~MachineGunBullet()
@@ -299,28 +388,31 @@ private:
 			for (int j = position->left / ground_width; j < (position->left + position->width) / ground_width; j++)
 			{
 				if ((i >= 0 && i < map_tiles_y) && (j >= 0 && j < map_tiles_x))
+				{
 					if (map[i][j] == 'h')
 						set_hp(10000);
-				if (map[i][j] != noCollision && map[i][j] != 'h')
-				{
-					if (dx > 0 && dir == 'x')
+
+					if (map[i][j] != noCollision && map[i][j] != 'h')
 					{
-						position->left = j * ground_width - position->width;
-					}
-					if (dx < 0 && dir == 'x')
-					{
-						position->left = j * ground_width + ground_width;
-					}
-					if (dy > 0 && dir == 'y')
-					{
-						position->top = i * ground_height - position->height;
-						dy = 0;
-						on_ground = true;
-					}
-					if (dy < 0 && dir == 'y')
-					{
-						position->top = i * ground_height + ground_height;
-						dy = 0;
+						if (dx > 0 && dir == 'x')
+						{
+							position->left = j * ground_width - position->width;
+						}
+						if (dx < 0 && dir == 'x')
+						{
+							position->left = j * ground_width + ground_width;
+						}
+						if (dy > 0 && dir == 'y')
+						{
+							position->top = i * ground_height - position->height;
+							dy = 0;
+							on_ground = true;
+						}
+						if (dy < 0 && dir == 'y')
+						{
+							position->top = i * ground_height + ground_height;
+							dy = 0;
+						}
 					}
 				}
 			}
@@ -331,7 +423,7 @@ public:
 	{
 		this->spritesheet = spritesheet;
 		this->gun = gun;
-		this->position = new sf::FloatRect(spawnX, spawnY, spritesheet->texture_rect->width, spritesheet->texture_rect->height);
+		this->position = new sf::FloatRect(spawnX, spawnY, spritesheet->texture_character_width, spritesheet->texture_height);
 		this->hp = 10000;
 		this->dx = 0;
 		this->dy = 0;
@@ -361,19 +453,17 @@ public:
 
 		if (sight_left)
 		{
-			bullet = gun->get_bullet(position->left, position->top + 0.5 * position->height, sight_left);
+			bullet = gun->get_bullet(position->left - (spritesheet->texture_width - spritesheet->texture_character_width), position->top + 0.5 * position->height, sight_left);
 		}
 		else
 		{
-			bullet = gun->get_bullet(position->left + position->width, position->top + 0.5 * position->height, sight_left);
+			bullet = gun->get_bullet(position->left + position->width + (spritesheet->texture_width - spritesheet->texture_character_width), position->top + 0.5 * position->height, sight_left);
 		}
 
-		//if (bullet != nullptr)
 		shooting = true;
 
 		return std::make_pair(this, bullet);
 	}
-
 
 	void set_x_movespeed(float dx)
 	{
@@ -438,7 +528,9 @@ public:
 		collision('y');
 
 		if (hp == 0)
+		{
 			spritesheet->sprite->setColor(sf::Color::Red);
+		}
 		else
 		{
 			spritesheet->sprite->setColor(sf::Color::White);
@@ -450,68 +542,37 @@ public:
 		if (dx < 0)
 			sight_left = true;
 
-		int textureWidth = position->width;	//something
-
 		//idle
 		if (dx == 0 && !shooting)
 		{
-			if (!sight_left)
-			{
-				spritesheet->texture_rect->left = 0;
-				spritesheet->texture_rect->width = textureWidth;
-				spritesheet->texture_rect->top = 146;
-			}
-			if (sight_left)
-			{
-				spritesheet->texture_rect->left = textureWidth;
-				spritesheet->texture_rect->width = -textureWidth;
-				spritesheet->texture_rect->top = 146;
-			}
+			spritesheet->idle(sight_left);
 		}
 
 		//run
 		else if (!shooting)
 		{
-			double animation_speed = 0.1;
-			spritesheet->cur_frame += abs(dx) * time * animation_speed;
-			if (spritesheet->cur_frame > spritesheet->n_frames)
-				spritesheet->cur_frame -= spritesheet->n_frames;
-			if (!sight_left)
-			{
-				spritesheet->texture_rect->left = int(spritesheet->cur_frame) * textureWidth;
-				spritesheet->texture_rect->width = textureWidth;
-				spritesheet->texture_rect->top = 0;
-			}
-			if (sight_left)
-			{
-				spritesheet->texture_rect->left = int(spritesheet->cur_frame) * textureWidth + textureWidth;
-				spritesheet->texture_rect->width = -textureWidth;
-				spritesheet->texture_rect->top = 0;
-			}
+			spritesheet->run(sight_left, dx, time);
 		}
 
 		//fire
 		else if (shooting)
 		{
-			double animation_speed = 0.007;
-			spritesheet->cur_frame += time * animation_speed;
-			if (spritesheet->cur_frame > 8)
-				spritesheet->cur_frame -= 8;
-			if (sight_left)
-			{
-				spritesheet->texture_rect->width = -128;
-				spritesheet->texture_rect->left = int(spritesheet->cur_frame) * -spritesheet->texture_rect->width + 128;
-				spritesheet->texture_rect->top = 87;
-			}
-			if (!sight_left)
-			{
-				spritesheet->texture_rect->width = 128;
-				spritesheet->texture_rect->left = int(spritesheet->cur_frame) * spritesheet->texture_rect->width;
-				spritesheet->texture_rect->top = 87;
-			}
+			spritesheet->shoot(sight_left, time);
 		}
+
+		double sprite_x = position->left - offsetX;
+		double sprite_y = position->top - offsetY;
+
+		if (sight_left)
+		{
+			sprite_x -= spritesheet->texture_character_width;
+			if (shooting)
+				sprite_x -= spritesheet->texture_shooting_width - spritesheet->texture_width;
+		}
+
 		spritesheet->sprite->setTextureRect(*(spritesheet->texture_rect));
-		spritesheet->sprite->setPosition(position->left - offsetX, position->top - offsetY);
+		spritesheet->sprite->setPosition(sprite_x, sprite_y);
+
 		dx = 0;
 		shooting = false;
 	}
@@ -766,7 +827,7 @@ int main()
 		if (0 + half_viewport_x < p1_x && p1_x < map_width - half_viewport_x)
 			offsetX = p1_x - half_viewport_x;
 
-		if (map_height - half_viewport_y > p1_y && p1_y > 0 + half_viewport_y)
+		if (map_height - half_viewport_y > p1_y&& p1_y > 0 + half_viewport_y)
 			offsetY = p1_y - half_viewport_y;
 
 
