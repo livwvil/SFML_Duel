@@ -8,7 +8,6 @@ const int ground_height = 32;
 const int ground_width = 32;
 const int map_tiles_y = 18;
 const int map_tiles_x = 80;
-const char noCollision = '-';
 int offsetX, offsetY;
 const int screen_width = 1500;
 const const int screen_height = 700;
@@ -17,6 +16,7 @@ const float half_viewport_y = screen_height / 2;
 const float map_width = map_tiles_x * ground_width;
 const float map_height = map_tiles_y * ground_height;
 
+const char no_collision[] = "-fsh";
 const char map[map_tiles_y][map_tiles_x + 1] = {
 	"--------------------------------------------------------------------------0-----",
 	"1------------------------------------------------------------------------0-----1",
@@ -29,14 +29,25 @@ const char map[map_tiles_y][map_tiles_x + 1] = {
 	"1-----------------------------------------------------------------0------------1",
 	"1-------------------------h--------------------------------------0-------------1",
 	"1---------------------------------00----------------------------0--------------1",
-	"1---------------------------------11-------------000000000000000---------------1",
+	"1---------f-----------------------11-------------000000000000000--------s------1",
 	"1---------------------------------11------------0------------------------------1",
 	"1-----------------------------0000110000------00-------------------------------1",
-	"1--------00-----------000----0-------------------------------------------------1",
+	"1--------000----------000----0-----------------------------------------000-----1",
 	"1-----------------0------------------------------------------------------------1",
 	"1-----------------1------------------------------------------------------------1",
 	"10000000000000000010000000000000000000000000000000000000000000000000000000000001",
 };
+
+bool is_no_collision(char c)
+{
+	for (int i = 0; i < sizeof(no_collision) / sizeof(*no_collision); i++)
+	{
+		if (c == no_collision[i])
+			return false;
+	}
+
+	return true;
+}
 class Spritesheet
 {
 public:
@@ -227,6 +238,16 @@ public:
 		this->player2_status->setPosition(1600 - (player2_status->getGlobalBounds().width + text_offset), 0.f);
 	}
 
+	void set_player1_status_pos(int x, int y)
+	{
+		this->player1_status->setPosition(sf::Vector2f(x, y));
+	}
+
+	void set_player2_status_pos(int x, int y)
+	{
+		this->player2_status->setPosition(sf::Vector2f(x, y));
+	}
+
 	sf::Text* get_player1_status()
 	{
 		return this->player1_status;
@@ -267,7 +288,7 @@ public:
 			for (int j = position->left / ground_width; j < (position->left + position->width) / ground_width; j++)
 			{
 				if ((i >= 0 && i < map_tiles_y) && (j >= 0 && j < map_tiles_x))
-					if (map[i][j] != noCollision && map[i][j] != 'h')
+					if (is_no_collision(map[i][j]))
 					{
 						b_damage = 0;
 					}
@@ -381,6 +402,8 @@ private:
 	bool on_ground;
 	bool shooting;
 	bool sight_left;
+	double spawn_x;
+	double spawn_y;
 	void collision(char dir)
 	{
 		for (int i = position->top / ground_height; i < (position->top + position->height) / ground_height; i++)
@@ -392,7 +415,7 @@ private:
 					if (map[i][j] == 'h')
 						set_hp(10000);
 
-					if (map[i][j] != noCollision && map[i][j] != 'h')
+					if (is_no_collision(map[i][j]))
 					{
 						if (dx > 0 && dir == 'x')
 						{
@@ -419,14 +442,16 @@ private:
 		}
 	}
 public:
-	Soldier(Spritesheet* spritesheet, BulletGenerator* gun, double spawnX, double spawnY)
+	Soldier(Spritesheet* spritesheet, BulletGenerator* gun, sf::Vector2f spawn)
 	{
 		this->spritesheet = spritesheet;
 		this->gun = gun;
-		this->position = new sf::FloatRect(spawnX, spawnY, spritesheet->texture_character_width, spritesheet->texture_height);
+		this->position = new sf::FloatRect(spawn.x, spawn.y, spritesheet->texture_character_width, spritesheet->texture_height);
 		this->hp = 10000;
 		this->dx = 0;
 		this->dy = 0;
+		this->spawn_x = spawn_x;
+		this->spawn_y = spawn_y;
 		this->on_ground = false;
 		this->shooting = false;
 		this->sight_left = false;
@@ -486,8 +511,8 @@ public:
 	{
 		position->left = x;
 		position->top = y;
-		offsetX = 0;
-		offsetY = 0;
+		//offsetX = 0;
+		//offsetY = 0;
 	}
 
 	sf::FloatRect* get_position()
@@ -510,6 +535,12 @@ public:
 		if (this->hp > 0)
 			this->hp -= dmg;
 		this->hp = hp < 0 ? 0 : hp;
+
+		if (hp == 0)
+		{
+			set_position(spawn_x, spawn_y);
+			hp = 10000;
+		}
 	}
 
 	void update(double time)
@@ -717,7 +748,6 @@ void dbg_print_avg_fps(float time)
 	}
 	else
 	{
-		//		std::cout << 1 / (time / 1e6) << std::endl;
 		double avg_time = (double)sum_time / (double)pool;
 		std::cout << (1 / (avg_time / 1e6)) << std::endl;
 		curr_call = 0;
@@ -725,17 +755,48 @@ void dbg_print_avg_fps(float time)
 	}
 }
 
+void move_viewport_to(float x, float y)
+{
+	if (0 + half_viewport_x > x)
+		x = half_viewport_x;
+	else if (x > map_width - half_viewport_x)
+		x = map_width - half_viewport_x;
+
+	offsetX = x - half_viewport_x;
+
+	if (map_height - half_viewport_y < y)
+		y = map_height - half_viewport_y;
+	//else if (y < 0 + half_viewport_y)
+	//	y = 0 + half_viewport_y;
+
+	offsetY = y - half_viewport_y;
+}
+
+
+sf::Vector2f get_spawn_coordinates(char player_char)
+{
+	for (int i = 0; i < map_tiles_y; i++)
+	{
+		for (int j = 0; j < map_tiles_x; j++)
+		{
+			if (map[i][j] == player_char)
+				return sf::Vector2f(j * ground_width, i * ground_height);
+		}
+
+	}
+	return sf::Vector2f(map_tiles_x / 2, 0);
+}
 
 int main()
 {
 	sf::RenderWindow mainWindow(sf::VideoMode(screen_width, screen_height), "SFML_Duel");
-	//mainWindow.setFramerateLimit(60);
+	mainWindow.setFramerateLimit(180);
 
 	BulletGenerator* gun1 = new MGBulletGenerator(100, 0.1);
 	BulletGenerator* gun2 = new MGBulletGenerator(100, 1);
 
-	Soldier* player1 = new Soldier(resources->player1, gun1, 100, 100);
-	Soldier* player2 = new Soldier(resources->player2, gun2, 300, 100);
+	Soldier* player1 = new Soldier(resources->player1, gun1, get_spawn_coordinates('f'));
+	Soldier* player2 = new Soldier(resources->player2, gun2, get_spawn_coordinates('s'));
 
 	KillManager* killManager = new KillManager();
 	killManager->subscribe(player1);
@@ -745,6 +806,10 @@ int main()
 
 	sf::Clock clock;
 	std::stringstream ss;
+	
+	bool p1_takes_viewport = true;
+	bool can_take_viewport = true;
+	
 	while (mainWindow.isOpen())
 	{
 
@@ -762,6 +827,19 @@ int main()
 			if (event.type == sf::Event::Closed)
 				mainWindow.close();
 		}
+		if (sf::Keyboard::isKeyPressed(sf::Keyboard::Space))
+		{
+			if (can_take_viewport)
+			{
+				p1_takes_viewport = !p1_takes_viewport;
+			}
+			can_take_viewport = false;
+		}
+		else
+		{
+			can_take_viewport = true;
+		}
+
 		if (sf::Keyboard::isKeyPressed(sf::Keyboard::W))
 		{
 			if (player1->is_on_ground())
@@ -809,28 +887,34 @@ int main()
 			killManager->handle_shot(player2->shoot());
 		}
 #pragma endregion
-		ss.str("");
-		ss << "Player 1 HP: " << player1->get_hp();
-		interf->set_player1_status(ss.str());
-		ss.str("");
-		ss << "Player 2 HP: " << player2->get_hp();
-		interf->set_player2_status(ss.str());
 
-		killManager->update(time);
 		player1->update(time);
 		player2->update(time);
+		killManager->update(time);
 
-		/*Camera*/
+		ss.str("");
+		ss << "HP: " << player1->get_hp();
+		interf->set_player1_status(ss.str());
+		ss.str("");
+		ss << "HP: " << player2->get_hp();
+		interf->set_player2_status(ss.str());
+
 		float p1_x = player1->get_position()->left;
 		float p1_y = player1->get_position()->top;
+		float p2_x = player2->get_position()->left;
+		float p2_y = player2->get_position()->top;
 
-		if (0 + half_viewport_x < p1_x && p1_x < map_width - half_viewport_x)
-			offsetX = p1_x - half_viewport_x;
+		interf->set_player1_status_pos(p1_x - offsetX, p1_y - offsetY - 10);
+		interf->set_player2_status_pos(p2_x - offsetX, p2_y - offsetY - 10);
 
-		if (map_height - half_viewport_y > p1_y&& p1_y > 0 + half_viewport_y)
-			offsetY = p1_y - half_viewport_y;
-
-
+		if (p1_takes_viewport)
+		{
+			move_viewport_to(p1_x, p1_y);
+		}
+		else
+		{
+			move_viewport_to(p2_x, p2_y);
+		}
 
 		mainWindow.clear(sf::Color::White);
 		drawMap(&mainWindow);
