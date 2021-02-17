@@ -238,6 +238,7 @@ public:
 	sf::Texture* ground_texture = new sf::Texture();
 	sf::Texture* heart_texture = new sf::Texture();
 	sf::Texture* gun_texture = new sf::Texture();
+	sf::Texture* minigun_texture = new sf::Texture();
 	sf::Texture* bullet_texture = new sf::Texture();
 	sf::Texture* player1_spritesheet = new sf::Texture();
 	sf::Texture* player2_spritesheet = new sf::Texture();
@@ -256,6 +257,7 @@ public:
 		this->ground_texture->loadFromFile("./assets/ground.png");
 		this->heart_texture->loadFromFile("./assets/heart.png");
 		this->gun_texture->loadFromFile("./assets/gun.png");
+		this->minigun_texture->loadFromFile("./assets/minigun.png");
 		this->bullet_texture->loadFromFile("./assets/bullet.png");
 		this->player2_spritesheet->loadFromFile("./assets/player2.png");
 		this->player1_spritesheet->loadFromFile("./assets/player1.png");
@@ -267,6 +269,9 @@ public:
 	~Resources()
 	{
 		delete this->ground_texture;
+		delete this->heart_texture;
+		delete this->gun_texture;
+		delete this->minigun_texture;
 		delete this->bullet_texture;
 		delete this->player1_spritesheet;
 		delete this->player2_spritesheet;
