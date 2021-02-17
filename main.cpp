@@ -31,13 +31,13 @@ char map[map_tiles_height][map_tiles_width + 1] = {
 	"1-----------------------------------------------------------------------0------1",
 	"1----------------------------------------------------------------------0-------1",
 	"1---------------------------------------------------------------------0--------1",
-	"1--------------------------------------------------------------------0---------1",
+	"1---------f----------------------------------------------------------0--s------1",
 	"1-------------------------------------------------------------------0----------1",
 	"1------------------------------------------------------------------0-----------1",
 	"1-----------------------------------------------------------------0------------1",
 	"1----------------------------------------------------------------0-------------1",
 	"1---------------------------------00----------------------------0--------------1",
-	"1---------f-----------------------11-------------000000000000000--------s------1",
+	"1---------------------------------11-------------000000000000000---------------1",
 	"1---------------------------------11------------0------------------------------1",
 	"1-----------------------------0000110000------00-------------------------------1",
 	"1--------000----------000----0-----------------------------------------000-----1",
@@ -81,6 +81,11 @@ public:
 		this->period_acc_microseconds = 0;
 		this->period_microseconds = period_sec * 1e6;
 		this->_period = Period::TIC;
+	}
+
+	double get_progress()
+	{
+		return limit_acc_microseconds / limit_microseconds;
 	}
 
 	Time count(double time_microseconds)
@@ -235,25 +240,42 @@ public:
 class Resources
 {
 public:
-	sf::Texture* ground_texture = new sf::Texture();
-	sf::Texture* heart_texture = new sf::Texture();
-	sf::Texture* gun_texture = new sf::Texture();
-	sf::Texture* minigun_texture = new sf::Texture();
-	sf::Texture* bullet_texture = new sf::Texture();
-	sf::Texture* player1_spritesheet = new sf::Texture();
-	sf::Texture* player2_spritesheet = new sf::Texture();
+	sf::Texture* background_texture;
+	sf::Sprite* background_sprite;
+
+	sf::Texture* ground_texture;
+	sf::RectangleShape* ground_tile;
+
+	sf::Texture* heart_texture;
+	sf::RectangleShape* heart_tile;
+
+	sf::Texture* gun_texture;
+	sf::Texture* minigun_texture;
+	sf::Texture* bullet_texture;
+	sf::Texture* player1_spritesheet;
+	sf::Texture* player2_spritesheet;
 	sf::Font* font;
 	Spritesheet* player1;
 	Spritesheet* player2;
 	Resources()
 	{
+		this->background_texture = new sf::Texture();
+		this->background_sprite = new sf::Sprite();
+
 		this->ground_texture = new sf::Texture();
+		this->ground_tile = new sf::RectangleShape(sf::Vector2f(tile_ground_width, tile_ground_height));
+
 		this->heart_texture = new sf::Texture();
+		this->heart_tile = new sf::RectangleShape(sf::Vector2f(tile_ground_width, tile_ground_height));
+
+		this->gun_texture = new sf::Texture();
+		this->minigun_texture = new sf::Texture();
 		this->bullet_texture = new sf::Texture();
-		this->player2_spritesheet = new sf::Texture();
 		this->player1_spritesheet = new sf::Texture();
+		this->player2_spritesheet = new sf::Texture();
 		this->font = new sf::Font();
 
+		this->background_texture->loadFromFile("./assets/background.png");
 		this->ground_texture->loadFromFile("./assets/ground.png");
 		this->heart_texture->loadFromFile("./assets/heart.png");
 		this->gun_texture->loadFromFile("./assets/gun.png");
@@ -263,13 +285,24 @@ public:
 		this->player1_spritesheet->loadFromFile("./assets/player1.png");
 		this->font->loadFromFile("./assets/arial.ttf");
 
+		this->background_texture->setRepeated(true);
+		this->background_sprite->setTexture(*background_texture);
+		this->background_sprite->setTextureRect(sf::IntRect(0, 0, screen_width, screen_height));
+
 		this->player1 = new Spritesheet(player1_spritesheet, 90, 55, 10);
 		this->player2 = new Spritesheet(player2_spritesheet, 90, 55, 10);
+
+		this->ground_tile->setTexture(this->ground_texture);
+		this->heart_tile->setTexture(this->heart_texture);
 	}
 	~Resources()
 	{
+		delete this->background_texture;
+		delete this->background_sprite;
 		delete this->ground_texture;
+		delete this->ground_tile;
 		delete this->heart_texture;
+		delete this->heart_tile;
 		delete this->gun_texture;
 		delete this->minigun_texture;
 		delete this->bullet_texture;
@@ -642,6 +675,7 @@ public:
 
 	void update(double time)
 	{
+		//std::cout << position->left << "\t" << position->top << std::endl;
 		gun->update(time);
 
 		on_ground = false;
@@ -725,12 +759,6 @@ public:
 
 void drawMap(sf::RenderWindow* mainWindow)
 {
-	//TODO move to resources
-	sf::RectangleShape ground_tile(sf::Vector2f(tile_ground_width, tile_ground_height));
-	ground_tile.setTexture(resources->ground_texture);
-	sf::RectangleShape heal_tile(sf::Vector2f(tile_ground_width, tile_ground_height));
-	heal_tile.setTexture(resources->heart_texture);
-	//
 	for (int i = 0; i < map_tiles_height; i++)
 	{
 		for (int j = 0; j < map_tiles_width; j++)
@@ -739,20 +767,20 @@ void drawMap(sf::RenderWindow* mainWindow)
 			float y = i * tile_ground_height - offsetY;
 			if (map[i][j] == '0')
 			{
-				ground_tile.setTextureRect(sf::IntRect(515, 400, 256, 137));
-				ground_tile.setPosition(x, y);
-				mainWindow->draw(ground_tile);
+				resources->ground_tile->setTextureRect(sf::IntRect(515, 400, 256, 137));
+				resources->ground_tile->setPosition(x, y);
+				mainWindow->draw(*(resources->ground_tile));
 			}
 			if (map[i][j] == '1')
 			{
-				ground_tile.setTextureRect(sf::IntRect(515, 119, 256, 137));
-				ground_tile.setPosition(x, y);
-				mainWindow->draw(ground_tile);
+				resources->ground_tile->setTextureRect(sf::IntRect(515, 119, 256, 137));
+				resources->ground_tile->setPosition(x, y);
+				mainWindow->draw(*(resources->ground_tile));
 			}
 			if (map[i][j] == 'h')
 			{
-				heal_tile.setPosition(x, y);
-				mainWindow->draw(heal_tile);
+				resources->heart_tile->setPosition(x, y);
+				mainWindow->draw(*(resources->heart_tile));
 			}
 		}
 	}
@@ -941,18 +969,25 @@ int main()
 	bool can_take_viewport = true;
 
 	map[bonus_last_coords.y][bonus_last_coords.x] = 'h';
-	TimeCounter bonus_respawn_time_counter(5);
+	double t = 5;
+	TimeCounter bonus_respawn_time_counter(t);
 
 	while (mainWindow.isOpen())
 	{
 
 #pragma region timer
 		float time = clock.getElapsedTime().asMicroseconds();
+
 		if (bonus_respawn_time_counter.count(time) == TimeCounter::ACHIEVED)
 		{
 			map[bonus_last_coords.y][bonus_last_coords.x] = '-';
 			bonus_last_coords = get_random_map_coordinate();
 			map[bonus_last_coords.y][bonus_last_coords.x] = 'h';
+			resources->heart_tile->setFillColor(sf::Color::White);
+		}
+		else
+		{
+			resources->heart_tile->setFillColor(sf::Color(255, 255, 255, 255 * (1 - bonus_respawn_time_counter.get_progress())));
 		}
 
 		dbg_print_avg_fps(time);
@@ -1059,6 +1094,7 @@ int main()
 		}
 
 		mainWindow.clear(sf::Color::White);
+		mainWindow.draw(*(resources->background_sprite));
 		drawMap(&mainWindow);
 		mainWindow.draw(*(player1->get_spritesheet()->sprite));
 		mainWindow.draw(*(player2->get_spritesheet()->sprite));
