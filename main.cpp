@@ -4,7 +4,9 @@
 #include<list>
 
 int offsetX, offsetY;
-const double gravity = 0.0005;
+const double gravity = 1.0 * 1e-8;
+const double player_dx = 0.35 * 1e-3;
+const double player_dy = 0.2 * 1e-2;
 
 const int screen_width = 1500;
 const const int screen_height = 700;
@@ -54,6 +56,73 @@ bool is_collision(char c)
 
 	return true;
 }
+
+class TimeCounter
+{
+public:
+	enum Time { NOT_ACHIEVED, ACHIEVED };
+	enum Period { TIC, TOC };
+private:
+	double limit_acc_microseconds;
+	double limit_microseconds;
+
+	double period_acc_microseconds;
+	double period_microseconds;
+	Period _period;
+public:
+	TimeCounter(double limit_sec)
+	{
+		this->limit_acc_microseconds = 0;
+		this->limit_microseconds = limit_sec * 1e6;
+	}
+
+	TimeCounter(double limit_sec, double period_sec) : TimeCounter(limit_sec)
+	{
+		this->period_acc_microseconds = 0;
+		this->period_microseconds = period_sec * 1e6;
+		this->_period = Period::TIC;
+	}
+
+	Time count(double time_microseconds)
+	{
+		limit_acc_microseconds += time_microseconds;
+
+		if (limit_acc_microseconds >= limit_microseconds)
+		{
+			limit_acc_microseconds = 0;
+			return ACHIEVED;
+		}
+
+		return NOT_ACHIEVED;
+	}
+
+	Period period(double time_microseconds)
+	{
+		if (_period == TIC)
+		{
+			period_acc_microseconds += time_microseconds;
+
+			if (period_acc_microseconds >= period_microseconds)
+			{
+				period_acc_microseconds = period_microseconds;
+				_period = TOC;
+			}
+		}
+		else if (_period == TOC)
+		{
+			period_acc_microseconds -= time_microseconds;
+
+			if (period_acc_microseconds <= 0)
+			{
+				period_acc_microseconds = 0;
+				_period = TIC;
+			}
+		}
+
+		return _period;
+	}
+};
+
 class Spritesheet
 {
 public:
@@ -94,8 +163,8 @@ public:
 		this->spritesheet_fire_top = 87;
 		this->spritesheet_idle_top = 146;
 
-		this->running_animation_speed = 0.1;
-		this->shooting_animation_speed = 0.007;
+		this->running_animation_speed = 0.10;
+		this->shooting_animation_speed = 0.000010;
 
 	}
 	~Spritesheet()
@@ -144,6 +213,7 @@ public:
 	{
 		cur_running_frame = 0;
 		texture_rect->top = spritesheet_fire_top;
+		//std::cout << cur_shooting_frame << std::endl;
 
 		cur_shooting_frame += time * shooting_animation_speed;
 		if (cur_shooting_frame > n_shooting_frames)
@@ -166,6 +236,8 @@ class Resources
 {
 public:
 	sf::Texture* ground_texture = new sf::Texture();
+	sf::Texture* heart_texture = new sf::Texture();
+	sf::Texture* gun_texture = new sf::Texture();
 	sf::Texture* bullet_texture = new sf::Texture();
 	sf::Texture* player1_spritesheet = new sf::Texture();
 	sf::Texture* player2_spritesheet = new sf::Texture();
@@ -175,12 +247,15 @@ public:
 	Resources()
 	{
 		this->ground_texture = new sf::Texture();
+		this->heart_texture = new sf::Texture();
 		this->bullet_texture = new sf::Texture();
 		this->player2_spritesheet = new sf::Texture();
 		this->player1_spritesheet = new sf::Texture();
 		this->font = new sf::Font();
 
 		this->ground_texture->loadFromFile("./assets/ground.png");
+		this->heart_texture->loadFromFile("./assets/heart.png");
+		this->gun_texture->loadFromFile("./assets/gun.png");
 		this->bullet_texture->loadFromFile("./assets/bullet.png");
 		this->player2_spritesheet->loadFromFile("./assets/player2.png");
 		this->player1_spritesheet->loadFromFile("./assets/player1.png");
@@ -389,7 +464,7 @@ public:
 	{
 		this->init_b_damage = damage;
 		this->init_b_speed = speed;
-		this->rate_of_fire = 0.5;
+		this->rate_of_fire = 0.003;
 		this->reloaded_percentage = 100;
 	}
 };
@@ -410,6 +485,8 @@ private:
 	bool sight_left;
 	double spawn_x;
 	double spawn_y;
+	bool blinking;
+	TimeCounter* respawn_time_counter;
 	void collision(char dir)
 	{
 		for (int i = position->top / tile_ground_height; i < (position->top + position->height) / tile_ground_height; i++)
@@ -419,7 +496,10 @@ private:
 				if ((i >= 0 && i < map_tiles_height) && (j >= 0 && j < map_tiles_width))
 				{
 					if (map[i][j] == 'h')
+					{
+						map[i][j] = '-';
 						set_hp(10000);
+					}
 
 					if (is_collision(map[i][j]))
 					{
@@ -456,16 +536,19 @@ public:
 		this->hp = 10000;
 		this->dx = 0;
 		this->dy = 0;
-		this->spawn_x = spawn_x;
-		this->spawn_y = spawn_y;
+		this->spawn_x = spawn.x;
+		this->spawn_y = spawn.y;
 		this->on_ground = false;
 		this->shooting = false;
 		this->sight_left = false;
+		this->blinking = false;
+		this->respawn_time_counter = new TimeCounter(3, 0.2);
 	}
 
 	~Soldier()
 	{
 		delete this->position;
+		delete this->respawn_time_counter;
 	}
 
 	void set_hp(int hp)
@@ -538,14 +621,17 @@ public:
 
 	void take_damage(int dmg)
 	{
+		if (blinking)
+			return;
+
 		if (this->hp > 0)
 			this->hp -= dmg;
-		this->hp = hp < 0 ? 0 : hp;
 
-		if (hp == 0)
+		if (this->hp <= 0)
 		{
+			this->hp = 0;
+			blinking = true;
 			set_position(spawn_x, spawn_y);
-			hp = 10000;
 		}
 	}
 
@@ -564,13 +650,30 @@ public:
 		position->top += dy * time;
 		collision('y');
 
-		if (hp == 0)
+		if (blinking)
 		{
-			spritesheet->sprite->setColor(sf::Color::Red);
-		}
-		else
-		{
-			spritesheet->sprite->setColor(sf::Color::White);
+			if (respawn_time_counter->count(time) == TimeCounter::Time::NOT_ACHIEVED)
+			{
+				TimeCounter::Period period = respawn_time_counter->period(time);
+				if (period == TimeCounter::Period::TIC)
+				{
+					spritesheet->sprite->setScale(0, 0);
+					//spritesheet->sprite->setColor(sf::Color::Red);
+				}
+				else if (period == TimeCounter::Period::TOC)
+				{
+					spritesheet->sprite->setScale(1, 1);
+					//spritesheet->sprite->setColor(sf::Color::White);
+				}
+			}
+			else
+			{
+				spritesheet->sprite->setScale(1, 1);
+				//spritesheet->sprite->setColor(sf::Color::White);
+				hp = 10000;
+				blinking = false;
+			}
+
 		}
 
 		//Animation
@@ -621,7 +724,7 @@ void drawMap(sf::RenderWindow* mainWindow)
 	sf::RectangleShape ground_tile(sf::Vector2f(tile_ground_width, tile_ground_height));
 	ground_tile.setTexture(resources->ground_texture);
 	sf::RectangleShape heal_tile(sf::Vector2f(tile_ground_width, tile_ground_height));
-	heal_tile.setFillColor(sf::Color::Green);
+	heal_tile.setTexture(resources->heart_texture);
 	//
 	for (int i = 0; i < map_tiles_height; i++)
 	{
@@ -803,7 +906,7 @@ sf::Vector2i get_random_map_coordinate()
 		y = rand() % map_tiles_height;
 		collision = is_collision(map[y][x]);
 	} while (collision);
-	
+
 	return sf::Vector2i(x, y);
 }
 
@@ -814,8 +917,8 @@ int main()
 	sf::RenderWindow mainWindow(sf::VideoMode(screen_width, screen_height), "SFML_Duel");
 	mainWindow.setFramerateLimit(180);
 
-	BulletGenerator* gun1 = new MGBulletGenerator(100, 0.1);
-	BulletGenerator* gun2 = new MGBulletGenerator(100, 1);
+	BulletGenerator* gun1 = new MGBulletGenerator(100, 0.0005);
+	BulletGenerator* gun2 = new MGBulletGenerator(100, 0.005);
 
 	Soldier* player1 = new Soldier(resources->player1, gun1, get_spawn_coordinates(p1_spawn));
 	Soldier* player2 = new Soldier(resources->player2, gun2, get_spawn_coordinates(p2_spawn));
@@ -833,14 +936,23 @@ int main()
 	bool can_take_viewport = true;
 
 	map[bonus_last_coords.y][bonus_last_coords.x] = 'h';
+	TimeCounter bonus_respawn_time_counter(5);
 
 	while (mainWindow.isOpen())
 	{
 
 #pragma region timer
 		float time = clock.getElapsedTime().asMicroseconds();
+		if (bonus_respawn_time_counter.count(time) == TimeCounter::ACHIEVED)
+		{
+			map[bonus_last_coords.y][bonus_last_coords.x] = '-';
+			bonus_last_coords = get_random_map_coordinate();
+			map[bonus_last_coords.y][bonus_last_coords.x] = 'h';
+		}
+
 		dbg_print_avg_fps(time);
-		if (time > 15) time = 15;
+		//std::cout << time << std::endl;
+		//if (time > 15) time = 15;
 		clock.restart();
 #pragma endregion
 
@@ -856,9 +968,6 @@ int main()
 			if (can_take_viewport)
 			{
 				p1_takes_viewport = !p1_takes_viewport;
-				map[bonus_last_coords.y][bonus_last_coords.x] = '-';
-				bonus_last_coords = get_random_map_coordinate();
-				map[bonus_last_coords.y][bonus_last_coords.x] = 'h';
 			}
 			can_take_viewport = false;
 		}
@@ -871,12 +980,12 @@ int main()
 		{
 			if (player1->is_on_ground())
 			{
-				player1->set_y_movespeed(-0.4);
+				player1->set_y_movespeed(-player_dy);
 			}
 		}
 		if (sf::Keyboard::isKeyPressed(sf::Keyboard::A))
 		{
-			player1->set_x_movespeed(-0.1);
+			player1->set_x_movespeed(-player_dx);
 		}
 		if (sf::Keyboard::isKeyPressed(sf::Keyboard::S))
 		{
@@ -884,7 +993,7 @@ int main()
 		}
 		if (sf::Keyboard::isKeyPressed(sf::Keyboard::D))
 		{
-			player1->set_x_movespeed(0.1);
+			player1->set_x_movespeed(player_dx);
 		}
 		if (sf::Keyboard::isKeyPressed(sf::Keyboard::Q))
 		{
@@ -896,17 +1005,17 @@ int main()
 		}
 		if (sf::Keyboard::isKeyPressed(sf::Keyboard::Left))
 		{
-			player2->set_x_movespeed(-0.1);
+			player2->set_x_movespeed(-player_dx);
 		}
 		if (sf::Keyboard::isKeyPressed(sf::Keyboard::Right))
 		{
-			player2->set_x_movespeed(0.1);
+			player2->set_x_movespeed(player_dx);
 		}
 		if (sf::Keyboard::isKeyPressed(sf::Keyboard::Up))
 		{
 			if (player2->is_on_ground())
 			{
-				player2->set_y_movespeed(-0.4);
+				player2->set_y_movespeed(-player_dy);
 			}
 		}
 		if (sf::Keyboard::isKeyPressed(sf::Keyboard::Down))
@@ -918,6 +1027,7 @@ int main()
 		player1->update(time);
 		player2->update(time);
 		killManager->update(time);
+
 
 		ss.str("");
 		ss << "HP: " << player1->get_hp();
