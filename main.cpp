@@ -8,49 +8,43 @@ const double gravity = 1.0 * 1e-8;
 const double player_dx = 0.35 * 1e-3;
 const double player_dy = 0.2 * 1e-2;
 
-const int screen_width = 1500;
-const const int screen_height = 700;
+const int screen_width = 1600;
+const const int screen_height = 800;
 
 const float half_viewport_x = screen_width / 2;
 const float half_viewport_y = screen_height / 2;
 
-const int tile_ground_height = 32;
-const int tile_ground_width = 32;
+const int tile_ground_height = 16;
+const int tile_ground_width = 16;
 
-const int map_tiles_height = 18;
-const int map_tiles_width = 80;
-const int map_pixels_width = map_tiles_width * tile_ground_width;
-const int map_pixels_height = map_tiles_height * tile_ground_height;
+int map_tiles_height = 0;	// 50
+int map_tiles_width = 0;	// 100
+int map_pixels_width = 0;	// map_tiles_width* tile_ground_width;
+int map_pixels_height = 0;	// map_tiles_height* tile_ground_height;
+std::vector<sf::Vector2u> empty_tiles_coordinates;
 
-const char p1_spawn = 'f';
-const char p2_spawn = 's';
-const char no_collision_chars[] = { '-', 'h', p1_spawn, p2_spawn };
-char map[map_tiles_height][map_tiles_width + 1] = {
-	"--------------------------------------------------------------------------0-----",
-	"1------------------------------------------------------------------------0-----1",
-	"1-----------------------------------------------------------------------0------1",
-	"1----------------------------------------------------------------------0-------1",
-	"1---------------------------------------------------------------------0--------1",
-	"1---------f----------------------------------------------------------0--s------1",
-	"1-------------------------------------------------------------------0----------1",
-	"1------------------------------------------------------------------0-----------1",
-	"1-----------------------------------------------------------------0------------1",
-	"1----------------------------------------------------------------0-------------1",
-	"1---------------------------------00----------------------------0--------------1",
-	"1---------------------------------11-------------000000000000000---------------1",
-	"1---------------------------------11------------0------------------------------1",
-	"1-----------------------------0000110000------00-------------------------------1",
-	"1--------000----------000----0-----------------------------------------000-----1",
-	"1-----------------0------------------------------------------------------------1",
-	"1-----------------1------------------------------------------------------------1",
-	"10000000000000000010000000000000000000000000000000000000000000000000000000000001",
+enum Tile
+{
+	// map
+	SOIL = 3111802879,
+	GRASS = 582044927,
+	EMPTY = 2581195519,
+
+	// bonus
+	HEART = 3978044671,
+
+	//
+	PLAYER1_SPAWN = 4286523391,
+	PLAYER2_SPAWN = 2281707007,
 };
 
-bool is_collision(char c)
+const Tile no_collision_tile[] = { Tile::EMPTY, Tile::HEART, Tile::PLAYER1_SPAWN, Tile::PLAYER2_SPAWN };
+
+bool is_collision(Tile tile)
 {
-	for (int i = 0; i < sizeof(no_collision_chars) / sizeof(*no_collision_chars); i++)
+	for (int i = 0; i < sizeof(no_collision_tile) / sizeof(*no_collision_tile); i++)
 	{
-		if (c == no_collision_chars[i])
+		if (tile == no_collision_tile[i])
 			return false;
 	}
 
@@ -142,6 +136,7 @@ public:
 	int texture_width;
 	int texture_height;
 	int texture_character_width;
+	int texture_character_height;
 	int texture_shooting_width;
 	int spritesheet_idle_top;
 	int spritesheet_run_top;
@@ -161,8 +156,15 @@ public:
 		this->texture_width = width;
 		this->texture_height = height;
 
+		this->texture_character_height = height; // 55
 		this->texture_character_width = 42;
 		this->texture_shooting_width = 128;
+
+		//double x_scale = 2.0 * tile_ground_width / texture_character_width;
+		//double y_scale = 4.0 * tile_ground_width / texture_character_height;
+		//sprite->setScale(x_scale, y_scale);
+		//texture_character_width *= x_scale;
+		//texture_character_height *= y_scale;
 
 		this->spritesheet_run_top = 0;
 		this->spritesheet_fire_top = 87;
@@ -255,6 +257,7 @@ public:
 	sf::Texture* player1_spritesheet;
 	sf::Texture* player2_spritesheet;
 	sf::Font* font;
+	sf::Image* map;
 	Spritesheet* player1;
 	Spritesheet* player2;
 	Resources()
@@ -274,6 +277,7 @@ public:
 		this->player1_spritesheet = new sf::Texture();
 		this->player2_spritesheet = new sf::Texture();
 		this->font = new sf::Font();
+		this->map = new sf::Image();
 
 		this->background_texture->loadFromFile("./assets/background.png");
 		this->ground_texture->loadFromFile("./assets/ground.png");
@@ -284,6 +288,23 @@ public:
 		this->player2_spritesheet->loadFromFile("./assets/player2.png");
 		this->player1_spritesheet->loadFromFile("./assets/player1.png");
 		this->font->loadFromFile("./assets/arial.ttf");
+		this->map->loadFromFile("./assets/map.png");
+
+		auto map_size = map->getSize();
+		map_tiles_width = map_size.x;
+		map_tiles_height = map_size.y;
+		map_pixels_width = map_tiles_width * tile_ground_width;
+		map_pixels_height = map_tiles_height * tile_ground_height;
+		for (int i = 0; i < map_size.y; i++)
+		{
+			for (int j = 0; j < map_size.x; j++)
+			{
+				if (!is_collision((Tile)map->getPixel(j, i).toInteger()))
+				{
+					empty_tiles_coordinates.push_back(sf::Vector2u(j, i));
+				}
+			}
+		}
 
 		this->background_texture->setRepeated(true);
 		this->background_sprite->setTexture(*background_texture);
@@ -309,12 +330,24 @@ public:
 		delete this->player1_spritesheet;
 		delete this->player2_spritesheet;
 		delete this->font;
+		delete this->map;
 		delete this->player1;
 		delete this->player2;
 	}
 };
 
 Resources* resources = new Resources();
+
+Tile get_tile(int x, int y)
+{
+	return (Tile)resources->map->getPixel(x, y).toInteger();
+}
+
+void set_tile(Tile tile, int x, int y)
+{
+	resources->map->setPixel(x, y, sf::Color(tile));
+}
+
 
 class Interface
 {
@@ -329,15 +362,15 @@ public:
 		player2_status = new sf::Text();
 
 		player1_status->setFont(*(resources->font));
-		player1_status->setCharacterSize(15);
+		player1_status->setCharacterSize(10);
 		player1_status->setOutlineColor(sf::Color::Black);
-		player1_status->setOutlineThickness(3);
+		player1_status->setOutlineThickness(2);
 		player1_status->setPosition(text_offset, 0.f);
 
 		player2_status->setFont(*(resources->font));
-		player2_status->setCharacterSize(15);
+		player2_status->setCharacterSize(10);
 		player2_status->setOutlineColor(sf::Color::Black);
-		player2_status->setOutlineThickness(3);
+		player2_status->setOutlineThickness(2);
 		player2_status->setPosition(1600 - (player2_status->getGlobalBounds().width + text_offset), 0.f);
 	}
 
@@ -407,7 +440,7 @@ public:
 			for (int j = position->left / tile_ground_width; j < (position->left + position->width) / tile_ground_width; j++)
 			{
 				if ((i >= 0 && i < map_tiles_height) && (j >= 0 && j < map_tiles_width))
-					if (is_collision(map[i][j]))
+					if (is_collision(get_tile(j, i)))
 					{
 						b_damage = 0;
 					}
@@ -533,13 +566,13 @@ private:
 			{
 				if ((i >= 0 && i < map_tiles_height) && (j >= 0 && j < map_tiles_width))
 				{
-					if (map[i][j] == 'h')
+					if (get_tile(j, i) == Tile::HEART)
 					{
-						map[i][j] = '-';
+						set_tile(Tile::EMPTY, j, i);
 						set_hp(10000);
 					}
 
-					if (is_collision(map[i][j]))
+					if (is_collision(get_tile(j, i)))
 					{
 						if (dx > 0 && dir == 'x')
 						{
@@ -570,7 +603,7 @@ public:
 	{
 		this->spritesheet = spritesheet;
 		this->gun = gun;
-		this->position = new sf::FloatRect(spawn.x, spawn.y, spritesheet->texture_character_width, spritesheet->texture_height);
+		this->position = new sf::FloatRect(spawn.x, spawn.y, spritesheet->texture_character_width, spritesheet->texture_character_height);
 		this->hp = 10000;
 		this->dx = 0;
 		this->dy = 0;
@@ -696,19 +729,16 @@ public:
 				TimeCounter::Period period = respawn_time_counter->period(time);
 				if (period == TimeCounter::Period::TIC)
 				{
-					spritesheet->sprite->setScale(0, 0);
-					//spritesheet->sprite->setColor(sf::Color::Red);
+					spritesheet->sprite->setColor(sf::Color(0, 0, 0, 0));
 				}
 				else if (period == TimeCounter::Period::TOC)
 				{
-					spritesheet->sprite->setScale(1, 1);
-					//spritesheet->sprite->setColor(sf::Color::White);
+					spritesheet->sprite->setColor(sf::Color::White);
 				}
 			}
 			else
 			{
-				spritesheet->sprite->setScale(1, 1);
-				//spritesheet->sprite->setColor(sf::Color::White);
+				spritesheet->sprite->setColor(sf::Color::White);
 				hp = 10000;
 				blinking = false;
 			}
@@ -757,27 +787,30 @@ public:
 	}
 };
 
-void drawMap(sf::RenderWindow* mainWindow)
+void draw_map(sf::RenderWindow* mainWindow)
 {
 	for (int i = 0; i < map_tiles_height; i++)
 	{
 		for (int j = 0; j < map_tiles_width; j++)
 		{
+			Tile tile = (Tile)resources->map->getPixel(j, i).toInteger();
+
 			float x = j * tile_ground_width - offsetX;
 			float y = i * tile_ground_height - offsetY;
-			if (map[i][j] == '0')
-			{
-				resources->ground_tile->setTextureRect(sf::IntRect(515, 400, 256, 137));
-				resources->ground_tile->setPosition(x, y);
-				mainWindow->draw(*(resources->ground_tile));
-			}
-			if (map[i][j] == '1')
+
+			if (tile == Tile::SOIL)
 			{
 				resources->ground_tile->setTextureRect(sf::IntRect(515, 119, 256, 137));
 				resources->ground_tile->setPosition(x, y);
 				mainWindow->draw(*(resources->ground_tile));
 			}
-			if (map[i][j] == 'h')
+			else if (tile == Tile::GRASS)
+			{
+				resources->ground_tile->setTextureRect(sf::IntRect(515, 400, 256, 137));
+				resources->ground_tile->setPosition(x, y);
+				mainWindow->draw(*(resources->ground_tile));
+			}
+			else if (tile == Tile::HEART)
 			{
 				resources->heart_tile->setPosition(x, y);
 				mainWindow->draw(*(resources->heart_tile));
@@ -915,13 +948,13 @@ void move_viewport_to(float x, float y)
 }
 
 
-sf::Vector2f get_spawn_coordinates(char player_char)
+sf::Vector2f get_spawn_coordinates(Tile spawn_tile)
 {
 	for (int i = 0; i < map_tiles_height; i++)
 	{
 		for (int j = 0; j < map_tiles_width; j++)
 		{
-			if (map[i][j] == player_char)
+			if (get_tile(j, i) == spawn_tile)
 				return sf::Vector2f(j * tile_ground_width, i * tile_ground_height);
 		}
 
@@ -929,21 +962,12 @@ sf::Vector2f get_spawn_coordinates(char player_char)
 	return sf::Vector2f(map_tiles_width / 2, 0);
 }
 
-sf::Vector2i get_random_map_coordinate()
+sf::Vector2u get_random_map_coordinate()
 {
-	bool collision = true;
-	int x, y;
-	do
-	{
-		x = rand() % map_tiles_width;
-		y = rand() % map_tiles_height;
-		collision = is_collision(map[y][x]);
-	} while (collision);
-
-	return sf::Vector2i(x, y);
+	return empty_tiles_coordinates[rand() % (empty_tiles_coordinates.size() - 1)];
 }
 
-sf::Vector2i bonus_last_coords = get_random_map_coordinate();
+sf::Vector2u bonus_last_coords = get_random_map_coordinate();
 
 int main()
 {
@@ -953,8 +977,8 @@ int main()
 	BulletGenerator* gun1 = new MGBulletGenerator(100, 0.0005);
 	BulletGenerator* gun2 = new MGBulletGenerator(100, 0.005);
 
-	Soldier* player1 = new Soldier(resources->player1, gun1, get_spawn_coordinates(p1_spawn));
-	Soldier* player2 = new Soldier(resources->player2, gun2, get_spawn_coordinates(p2_spawn));
+	Soldier* player1 = new Soldier(resources->player1, gun1, get_spawn_coordinates(Tile::PLAYER1_SPAWN));
+	Soldier* player2 = new Soldier(resources->player2, gun2, get_spawn_coordinates(Tile::PLAYER2_SPAWN));
 
 	KillManager* killManager = new KillManager();
 	killManager->subscribe(player1);
@@ -968,7 +992,7 @@ int main()
 	bool p1_takes_viewport = true;
 	bool can_take_viewport = true;
 
-	map[bonus_last_coords.y][bonus_last_coords.x] = 'h';
+	set_tile(Tile::HEART, bonus_last_coords.x, bonus_last_coords.y);
 	double t = 5;
 	TimeCounter bonus_respawn_time_counter(t);
 
@@ -980,9 +1004,9 @@ int main()
 
 		if (bonus_respawn_time_counter.count(time) == TimeCounter::ACHIEVED)
 		{
-			map[bonus_last_coords.y][bonus_last_coords.x] = '-';
+			set_tile(Tile::EMPTY, bonus_last_coords.x, bonus_last_coords.y);
 			bonus_last_coords = get_random_map_coordinate();
-			map[bonus_last_coords.y][bonus_last_coords.x] = 'h';
+			set_tile(Tile::HEART, bonus_last_coords.x, bonus_last_coords.y);
 			resources->heart_tile->setFillColor(sf::Color::White);
 		}
 		else
@@ -1084,18 +1108,18 @@ int main()
 		interf->set_player1_status_pos(p1_x - offsetX, p1_y - offsetY - 10);
 		interf->set_player2_status_pos(p2_x - offsetX, p2_y - offsetY - 10);
 
-		if (p1_takes_viewport)
-		{
-			move_viewport_to(p1_x, p1_y);
-		}
-		else
-		{
-			move_viewport_to(p2_x, p2_y);
-		}
+		//if (p1_takes_viewport)
+		//{
+		//	move_viewport_to(p1_x, p1_y);
+		//}
+		//else
+		//{
+		//	move_viewport_to(p2_x, p2_y);
+		//}
 
 		mainWindow.clear(sf::Color::White);
 		mainWindow.draw(*(resources->background_sprite));
-		drawMap(&mainWindow);
+		draw_map(&mainWindow);
 		mainWindow.draw(*(player1->get_spritesheet()->sprite));
 		mainWindow.draw(*(player2->get_spritesheet()->sprite));
 		mainWindow.draw(*(interf->get_player1_status()));
