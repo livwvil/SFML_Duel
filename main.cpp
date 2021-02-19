@@ -34,13 +34,15 @@ enum Tile
 
 	// bonus
 	HEART = 3978044671,
+	SPEED = 2097166,
+	MINIGUN = 2103822,
 
-	//
+	// players
 	PLAYER1_SPAWN = 4286523391,
 	PLAYER2_SPAWN = 2281707007,
 };
 
-const Tile no_collision_tile[] = { Tile::EMPTY, Tile::HEART, Tile::PLAYER1_SPAWN, Tile::PLAYER2_SPAWN };
+const Tile no_collision_tile[] = { Tile::EMPTY, Tile::HEART, Tile::SPEED, Tile::MINIGUN, Tile::PLAYER1_SPAWN, Tile::PLAYER2_SPAWN };
 
 bool is_collision(Tile tile)
 {
@@ -144,6 +146,10 @@ public:
 	~TimeCounter();
 	double get_progress();
 	void reset();
+	int get_time();
+	int get_time_reversed();
+	bool started();
+	std::string get_time_as_sring(bool reversed = false);
 	static void update_all_timecounters(float time);
 };
 std::vector<TimeCounter*> TimeCounter::all_timecounters;
@@ -187,6 +193,32 @@ void TimeCounter::reset()
 {
 	limit_acc_microseconds = 0;
 	should_update = false;
+}
+int TimeCounter::get_time()
+{
+	return limit_acc_microseconds * 1e-6;
+}
+int TimeCounter::get_time_reversed()
+{
+	return (limit_microseconds - limit_acc_microseconds) * 1e-6;
+}
+bool TimeCounter::started()
+{
+	return limit_acc_microseconds != 0.0;
+}
+std::string TimeCounter::get_time_as_sring(bool reversed)
+{
+	int time;
+	if (reversed)
+		time = get_time_reversed();
+	else
+		time = get_time();
+
+	int seconds = time % 60;
+	int minutes = (time - seconds) / 60;
+
+	return std::to_string(minutes) + ":" + (seconds < 10 ? "0" : "") + std::to_string(seconds);
+
 }
 void TimeCounter::update_all_timecounters(float time)
 {
@@ -327,8 +359,13 @@ public:
 	sf::Texture* heart_texture;
 	sf::RectangleShape* heart_tile;
 
-	sf::Texture* gun_texture;
 	sf::Texture* minigun_texture;
+	sf::RectangleShape* minigun_tile;
+
+	sf::Texture* speed_texture;
+	sf::RectangleShape* speed_tile;
+
+	sf::Texture* gun_texture;
 	sf::Texture* bullet_texture;
 	sf::Texture* player1_spritesheet;
 	sf::Texture* player2_spritesheet;
@@ -347,8 +384,13 @@ public:
 		this->heart_texture = new sf::Texture();
 		this->heart_tile = new sf::RectangleShape(sf::Vector2f(tile_ground_width, tile_ground_height));
 
-		this->gun_texture = new sf::Texture();
 		this->minigun_texture = new sf::Texture();
+		this->minigun_tile = new sf::RectangleShape(sf::Vector2f(tile_ground_width, tile_ground_height));
+
+		this->speed_texture = new sf::Texture();
+		this->speed_tile = new sf::RectangleShape(sf::Vector2f(tile_ground_width, tile_ground_height));
+
+		this->gun_texture = new sf::Texture();
 		this->bullet_texture = new sf::Texture();
 		this->player1_spritesheet = new sf::Texture();
 		this->player2_spritesheet = new sf::Texture();
@@ -360,6 +402,7 @@ public:
 		this->heart_texture->loadFromFile("./assets/heart.png");
 		this->gun_texture->loadFromFile("./assets/gun.png");
 		this->minigun_texture->loadFromFile("./assets/minigun.png");
+		this->speed_texture->loadFromFile("./assets/speed.png");
 		this->bullet_texture->loadFromFile("./assets/bullet.png");
 		this->player2_spritesheet->loadFromFile("./assets/player2.png");
 		this->player1_spritesheet->loadFromFile("./assets/player1.png");
@@ -391,6 +434,8 @@ public:
 
 		this->ground_tile->setTexture(this->ground_texture);
 		this->heart_tile->setTexture(this->heart_texture);
+		this->minigun_tile->setTexture(this->minigun_texture);
+		this->speed_tile->setTexture(this->speed_texture);
 	}
 	~Resources()
 	{
@@ -400,8 +445,11 @@ public:
 		delete this->ground_tile;
 		delete this->heart_texture;
 		delete this->heart_tile;
+		delete this->minigun_tile;
+		delete this->speed_tile;
 		delete this->gun_texture;
 		delete this->minigun_texture;
+		delete this->speed_texture;
 		delete this->bullet_texture;
 		delete this->player1_spritesheet;
 		delete this->player2_spritesheet;
@@ -428,62 +476,130 @@ void set_tile(Tile tile, int x, int y)
 class Interface
 {
 private:
-	sf::Text* player1_status;
-	sf::Text* player2_status;
+	sf::Text* p1_hp;
+	sf::Text* p2_hp;
+	sf::Text* score;
+	sf::Text* time;
+	sf::Text* debug;
+	sf::Text* round_result;
 	float text_offset = 100;
 public:
 	Interface()
 	{
-		player1_status = new sf::Text();
-		player2_status = new sf::Text();
+		this->p1_hp = new sf::Text();
+		this->p2_hp = new sf::Text();
+		this->score = new sf::Text();
+		this->time = new sf::Text();
+		this->debug = new sf::Text();
+		this->round_result = new sf::Text();
 
-		player1_status->setFont(*(resources->font));
-		player1_status->setCharacterSize(10);
-		player1_status->setOutlineColor(sf::Color::Black);
-		player1_status->setOutlineThickness(2);
-		player1_status->setPosition(text_offset, 0.f);
+		this->p1_hp->setFont(*(resources->font));
+		this->p1_hp->setCharacterSize(10);
+		this->p1_hp->setOutlineColor(sf::Color::Black);
+		this->p1_hp->setOutlineThickness(2);
 
-		player2_status->setFont(*(resources->font));
-		player2_status->setCharacterSize(10);
-		player2_status->setOutlineColor(sf::Color::Black);
-		player2_status->setOutlineThickness(2);
-		player2_status->setPosition(1600 - (player2_status->getGlobalBounds().width + text_offset), 0.f);
+		this->p2_hp->setFont(*(resources->font));
+		this->p2_hp->setCharacterSize(10);
+		this->p2_hp->setOutlineColor(sf::Color::Black);
+		this->p2_hp->setOutlineThickness(2);
+
+		this->score->setFont(*(resources->font));
+		this->score->setCharacterSize(20);
+		this->score->setOutlineColor(sf::Color::Black);
+		this->score->setOutlineThickness(3);
+		this->score->setPosition(half_viewport_x - 100, 0);
+
+		this->time->setFont(*(resources->font));
+		this->time->setCharacterSize(30);
+		this->time->setOutlineColor(sf::Color::Black);
+		this->time->setOutlineThickness(3);
+		this->time->setPosition(half_viewport_x - 100, 40);
+
+		this->debug->setFont(*(resources->font));
+		this->debug->setCharacterSize(10);
+		this->debug->setOutlineColor(sf::Color::Black);
+		this->debug->setOutlineThickness(3);
+		this->debug->setPosition(0, 0);
+
+		this->round_result->setFont(*(resources->font));
+		this->round_result->setCharacterSize(50);
+		this->round_result->setOutlineColor(sf::Color::Black);
+		this->round_result->setOutlineThickness(3);
+		this->round_result->setPosition(half_viewport_x - 300, half_viewport_y);
 	}
 
 	~Interface()
 	{
-		delete this->player1_status;
-		delete this->player2_status;
+		delete this->p1_hp;
+		delete this->p2_hp;
+		delete this->score;
+		delete this->time;
+		delete this->debug;
+		delete this->round_result;
+	}
+
+	void set_round_result(std::string res)
+	{
+		this->round_result->setString(res);
+	}
+	void set_score(std::string score)
+	{
+		this->score->setString(score);
+	}
+	void set_debug(std::string debug)
+	{
+		this->debug->setString(debug);
+	}
+	void set_time(std::string time)
+	{
+		this->time->setString(time);
 	}
 
 	void set_player1_status(std::string status)
 	{
-		this->player1_status->setString(status);
+		this->p1_hp->setString(status);
 	}
 	void set_player2_status(std::string status)
 	{
-		this->player2_status->setString(status);
-		this->player2_status->setPosition(1600 - (player2_status->getGlobalBounds().width + text_offset), 0.f);
+		this->p2_hp->setString(status);
+		this->p2_hp->setPosition(1600 - (p2_hp->getGlobalBounds().width + text_offset), 0.f);
 	}
 
 	void set_player1_status_pos(int x, int y)
 	{
-		this->player1_status->setPosition(sf::Vector2f(x, y));
+		this->p1_hp->setPosition(sf::Vector2f(x, y));
 	}
 
 	void set_player2_status_pos(int x, int y)
 	{
-		this->player2_status->setPosition(sf::Vector2f(x, y));
+		this->p2_hp->setPosition(sf::Vector2f(x, y));
 	}
 
 	sf::Text* get_player1_status()
 	{
-		return this->player1_status;
+		return this->p1_hp;
 	}
 
 	sf::Text* get_player2_status()
 	{
-		return this->player2_status;
+		return this->p2_hp;
+	}
+
+	sf::Text* get_score()
+	{
+		return this->score;
+	}
+	sf::Text* get_debug()
+	{
+		return this->debug;
+	}
+	sf::Text* get_time()
+	{
+		return this->time;
+	}
+	sf::Text* get_round_result()
+	{
+		return this->round_result;
 	}
 };
 
@@ -624,6 +740,7 @@ private:
 	Spritesheet* spritesheet;
 	BulletGenerator* gun;
 	sf::FloatRect* position;
+	int score;
 	int hp;
 	double dx;
 	double dy;
@@ -643,10 +760,21 @@ private:
 			{
 				if ((i >= 0 && i < map_tiles_height) && (j >= 0 && j < map_tiles_width))
 				{
-					if (get_tile(j, i) == Tile::HEART)
+					Tile tile = get_tile(j, i);
+					if (tile == Tile::HEART)
 					{
 						set_tile(Tile::EMPTY, j, i);
 						set_hp(10000);
+					}
+					else if (tile == Tile::SPEED)
+					{
+						set_tile(Tile::EMPTY, j, i);
+						dx *= 1.5;
+					}
+					else if (tile == Tile::MINIGUN)
+					{
+						set_tile(Tile::EMPTY, j, i);
+
 					}
 
 					if (is_collision(get_tile(j, i)))
@@ -681,6 +809,7 @@ public:
 		this->spritesheet = spritesheet;
 		this->gun = gun;
 		this->position = new sf::FloatRect(spawn.x, spawn.y, spritesheet->texture_character_width, spritesheet->texture_character_height);
+		this->score = 0;
 		this->hp = 10000;
 		this->dx = 0;
 		this->dy = 0;
@@ -710,7 +839,14 @@ public:
 	{
 		return hp;
 	}
-
+	void incr_score()
+	{
+		this->score += 1;
+	}
+	int get_score()
+	{
+		return this->score;
+	}
 	std::pair<Soldier*, IBullet*> shoot()
 	{
 		IBullet* bullet = nullptr;
@@ -769,10 +905,10 @@ public:
 		return on_ground;
 	}
 
-	void take_damage(int dmg)
+	bool take_damage(int dmg)
 	{
 		if (blinking)
-			return;
+			return false;
 
 		if (this->hp > 0)
 			this->hp -= dmg;
@@ -782,7 +918,10 @@ public:
 			this->hp = 0;
 			blinking = true;
 			set_position(spawn_x, spawn_y);
+			return true;
 		}
+
+		return false;
 	}
 
 	void update(double time)
@@ -896,6 +1035,16 @@ void draw_map(sf::RenderWindow* mainWindow)
 				resources->heart_tile->setPosition(x, y);
 				mainWindow->draw(*(resources->heart_tile));
 			}
+			else if (tile == Tile::MINIGUN)
+			{
+				resources->minigun_tile->setPosition(x, y);
+				mainWindow->draw(*(resources->minigun_tile));
+			}
+			else if (tile == Tile::SPEED)
+			{
+				resources->speed_tile->setPosition(x, y);
+				mainWindow->draw(*(resources->speed_tile));
+			}
 		}
 	}
 }
@@ -971,8 +1120,11 @@ public:
 				{
 					if (bullet->get_position()->intersects(*(current_soldier->get_position())))
 					{
-						current_soldier->take_damage(bullet->get_damage());
-						bullet->set_damage(bullet->get_damage() / 2 - bullet->get_damage() * 0.1);
+						bool is_enemy_dead = current_soldier->take_damage(bullet->get_damage());
+						if (is_enemy_dead)
+							soldier->incr_score();
+						//bullet->set_damage(bullet->get_damage() / 2 - bullet->get_damage() * 0.1);
+						bullet->set_damage(0);
 					}
 				}
 			}
@@ -1040,7 +1192,7 @@ void move_viewport_to(float x, float y, float time)
 	double rate_v_y = 1.0 - rate_v_x;
 
 	double dist = sqrt(s_x * s_x + s_y * s_y);
-	double viewport_movespeed = base_viewport_movespeed *  atan(0.003 * dist) * 2 / 3.1415926535;
+	double viewport_movespeed = base_viewport_movespeed * atan(0.003 * dist) * 2 / 3.1415926535;
 
 	double viewport_dx = viewport_movespeed * rate_v_x * (dir_x ? 1 : -1);
 	double viewport_dy = viewport_movespeed * rate_v_y * (dir_y ? 1 : -1);
@@ -1078,7 +1230,9 @@ sf::Vector2u get_random_map_coordinate()
 	return empty_tiles_coordinates[rand() % (empty_tiles_coordinates.size() - 1)];
 }
 
-sf::Vector2u bonus_last_coords = get_random_map_coordinate();
+sf::Vector2u heart_last_coords = get_random_map_coordinate();
+sf::Vector2u minigun_last_coords = get_random_map_coordinate();
+sf::Vector2u speed_last_coords = get_random_map_coordinate();
 
 int main()
 {
@@ -1106,9 +1260,15 @@ int main()
 	bool p1_takes_viewport = true;
 	bool can_take_viewport = true;
 
-	set_tile(Tile::HEART, bonus_last_coords.x, bonus_last_coords.y);
+	set_tile(Tile::HEART, heart_last_coords.x, heart_last_coords.y);
+	set_tile(Tile::SPEED, speed_last_coords.x, speed_last_coords.y);
+	set_tile(Tile::MINIGUN, minigun_last_coords.x, minigun_last_coords.y);
 	double t = 5;
-	TimeCounter bonus_respawn_time_counter(t);
+	TimeCounter heart_respawn_time_counter(t);
+	TimeCounter speed_respawn_time_counter(t);
+	TimeCounter minigun_respawn_time_counter(t);
+	TimeCounter round_time(15);
+	TimeCounter round_result_announce(4);
 
 	TimeCounter viewport_tc(4);
 	while (mainWindow.isOpen())
@@ -1120,21 +1280,43 @@ int main()
 		TicToc::update_all_tic_tocs(time);
 
 
-		if (bonus_respawn_time_counter.get_progress() == 1.0)
+		if (heart_respawn_time_counter.get_progress() == 1.0)
 		{
-			set_tile(Tile::EMPTY, bonus_last_coords.x, bonus_last_coords.y);
-			bonus_last_coords = get_random_map_coordinate();
-			set_tile(Tile::HEART, bonus_last_coords.x, bonus_last_coords.y);
+			set_tile(Tile::EMPTY, heart_last_coords.x, heart_last_coords.y);
+			heart_last_coords = get_random_map_coordinate();
+			set_tile(Tile::HEART, heart_last_coords.x, heart_last_coords.y);
 			resources->heart_tile->setFillColor(sf::Color::White);
 		}
 		else
 		{
-			resources->heart_tile->setFillColor(sf::Color(255, 255, 255, 255 * (1 - bonus_respawn_time_counter.get_progress())));
+			resources->heart_tile->setFillColor(sf::Color(255, 255, 255, 255 * (1 - heart_respawn_time_counter.get_progress())));
+		}
+
+		if (minigun_respawn_time_counter.get_progress() == 1.0)
+		{
+			set_tile(Tile::EMPTY, minigun_last_coords.x, minigun_last_coords.y);
+			minigun_last_coords = get_random_map_coordinate();
+			set_tile(Tile::MINIGUN, minigun_last_coords.x, minigun_last_coords.y);
+			resources->minigun_tile->setFillColor(sf::Color::White);
+		}
+		else
+		{
+			resources->minigun_tile->setFillColor(sf::Color(255, 255, 255, 255 * (1 - minigun_respawn_time_counter.get_progress())));
+		}
+
+		if (speed_respawn_time_counter.get_progress() == 1.0)
+		{
+			set_tile(Tile::EMPTY, speed_last_coords.x, speed_last_coords.y);
+			speed_last_coords = get_random_map_coordinate();
+			set_tile(Tile::SPEED, speed_last_coords.x, speed_last_coords.y);
+			resources->speed_tile->setFillColor(sf::Color::White);
+		}
+		else
+		{
+			resources->speed_tile->setFillColor(sf::Color(255, 255, 255, 255 * (1 - speed_respawn_time_counter.get_progress())));
 		}
 
 		dbg_print_avg_fps(time);
-		//std::cout << time << std::endl;
-		//if (time > 15) time = 15;
 		clock.restart();
 #pragma endregion
 
@@ -1211,17 +1393,31 @@ int main()
 		killManager->update(time);
 
 
+		float p1_x = player1->get_position()->left;
+		float p1_y = player1->get_position()->top;
+		float p2_x = player2->get_position()->left;
+		float p2_y = player2->get_position()->top;
+
 		ss.str("");
 		ss << "HP: " << player1->get_hp();
 		interf->set_player1_status(ss.str());
 		ss.str("");
 		ss << "HP: " << player2->get_hp();
 		interf->set_player2_status(ss.str());
+		ss.str("");
+		ss << "Player 1\t" << player1->get_score() << " : " << player2->get_score() << "\tPlayer 2";
+		interf->set_score(ss.str());
+		interf->set_time(round_time.get_time_as_sring(true));
+		ss.str("");
+		ss << "Player 1\n";
+		ss << "X: " << (int)p1_x << "\n";
+		ss << "Y: " << (int)p1_y << "\n";
+		ss << "Player 2\n";
+		ss << "X: " << (int)p2_x << "\n";
+		ss << "Y: " << (int)p2_y << "\n";
+		interf->set_debug(ss.str());
 
-		float p1_x = player1->get_position()->left;
-		float p1_y = player1->get_position()->top;
-		float p2_x = player2->get_position()->left;
-		float p2_y = player2->get_position()->top;
+
 
 		interf->set_player1_status_pos(p1_x - offsetX, p1_y - offsetY - 10);
 		interf->set_player2_status_pos(p2_x - offsetX, p2_y - offsetY - 10);
@@ -1234,7 +1430,6 @@ int main()
 				p1_takes_viewport = false;
 				viewport_tc.reset();
 			}
-
 		}
 		else
 		{
@@ -1253,7 +1448,28 @@ int main()
 		mainWindow.draw(*(player2->get_spritesheet()->sprite));
 		mainWindow.draw(*(interf->get_player1_status()));
 		mainWindow.draw(*(interf->get_player2_status()));
+		mainWindow.draw(*(interf->get_score()));
+		mainWindow.draw(*(interf->get_time()));
+		mainWindow.draw(*(interf->get_debug()));
 		killManager->draw_bullets(&mainWindow);
+		if (!round_result_announce.started())
+		{
+			if (round_time.get_progress() == 1.0)
+			{
+				int s1 = player1->get_score();
+				int s2 = player2->get_score();
+				interf->set_round_result(s1 > s2 ? "PLAYER  1 WON!" : s2 > s1 ? "PLAYER 2 WON!" : "DEAD HEAT!");
+				round_time.reset();
+				round_result_announce.get_progress();
+			}
+		}
+		else
+		{
+			if (round_result_announce.get_progress() == 1.0)
+				round_result_announce.reset();
+
+			mainWindow.draw(*(interf->get_round_result()));
+		}
 		mainWindow.display();
 	}
 }
