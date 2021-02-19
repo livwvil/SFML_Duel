@@ -1,5 +1,7 @@
 #include<SFML\Graphics.hpp>
 #include<iostream>
+#include<algorithm>
+#include<math.h>
 #include<sstream>
 #include<list>
 
@@ -14,8 +16,8 @@ const const int screen_height = 800;
 const float half_viewport_x = screen_width / 2;
 const float half_viewport_y = screen_height / 2;
 
-const int tile_ground_height = 16;
-const int tile_ground_width = 16;
+const int tile_ground_height = 32;
+const int tile_ground_width = 32;
 
 int map_tiles_height = 0;	// 50
 int map_tiles_width = 0;	// 100
@@ -51,76 +53,150 @@ bool is_collision(Tile tile)
 	return true;
 }
 
-class TimeCounter
+class TicToc
 {
 public:
-	enum Time { NOT_ACHIEVED, ACHIEVED };
 	enum Period { TIC, TOC };
 private:
-	double limit_acc_microseconds;
-	double limit_microseconds;
-
 	double period_acc_microseconds;
 	double period_microseconds;
 	Period _period;
+	static std::vector<TicToc*> all_tic_tocs;
+	bool should_update;
+	void update(float time_microseconds);
 public:
-	TimeCounter(double limit_sec)
-	{
-		this->limit_acc_microseconds = 0;
-		this->limit_microseconds = limit_sec * 1e6;
-	}
-
-	TimeCounter(double limit_sec, double period_sec) : TimeCounter(limit_sec)
-	{
-		this->period_acc_microseconds = 0;
-		this->period_microseconds = period_sec * 1e6;
-		this->_period = Period::TIC;
-	}
-
-	double get_progress()
-	{
-		return limit_acc_microseconds / limit_microseconds;
-	}
-
-	Time count(double time_microseconds)
-	{
-		limit_acc_microseconds += time_microseconds;
-
-		if (limit_acc_microseconds >= limit_microseconds)
-		{
-			limit_acc_microseconds = 0;
-			return ACHIEVED;
-		}
-
-		return NOT_ACHIEVED;
-	}
-
-	Period period(double time_microseconds)
-	{
-		if (_period == TIC)
-		{
-			period_acc_microseconds += time_microseconds;
-
-			if (period_acc_microseconds >= period_microseconds)
-			{
-				period_acc_microseconds = period_microseconds;
-				_period = TOC;
-			}
-		}
-		else if (_period == TOC)
-		{
-			period_acc_microseconds -= time_microseconds;
-
-			if (period_acc_microseconds <= 0)
-			{
-				period_acc_microseconds = 0;
-				_period = TIC;
-			}
-		}
-
-		return _period;
-	}
+	TicToc(double period_sec);
+	~TicToc();
+	Period get_period();
+	void reset();
+	static void update_all_tic_tocs(float time);
 };
+std::vector<TicToc*> TicToc::all_tic_tocs;
+void TicToc::update(float time_microseconds)
+{
+	if (should_update == false)
+		return;
+	if (_period == TIC)
+	{
+		period_acc_microseconds += time_microseconds;
+
+		if (period_acc_microseconds >= period_microseconds)
+		{
+			period_acc_microseconds = period_microseconds;
+			_period = TOC;
+		}
+	}
+	else if (_period == TOC)
+	{
+		period_acc_microseconds -= time_microseconds;
+
+		if (period_acc_microseconds <= 0)
+		{
+			period_acc_microseconds = 0;
+			_period = TIC;
+		}
+	}
+}
+TicToc::TicToc(double period_sec)
+{
+	this->period_acc_microseconds = 0;
+	this->period_microseconds = period_sec * 1e6;
+	this->_period = Period::TIC;
+	this->should_update = false;
+	TicToc::all_tic_tocs.push_back(this);
+}
+TicToc::~TicToc()
+{
+	auto position = std::find(TicToc::all_tic_tocs.begin(), TicToc::all_tic_tocs.end(), this);
+	if (position != TicToc::all_tic_tocs.end())
+		TicToc::all_tic_tocs.erase(position);
+}
+TicToc::Period TicToc::get_period()
+{
+	should_update = true;
+
+	return _period;
+}
+void TicToc::reset()
+{
+	period_acc_microseconds = 0;
+	_period = TicToc::Period::TIC;
+	should_update = false;
+}
+void TicToc::update_all_tic_tocs(float time)
+{
+	for (const auto& tt : TicToc::all_tic_tocs)
+	{
+		tt->update(time);
+	}
+}
+
+class TimeCounter
+{
+private:
+	double limit_acc_microseconds;
+	double limit_microseconds;
+	static std::vector<TimeCounter*> all_timecounters;
+	bool should_update;
+	void update(float time_microseconds);
+public:
+	TimeCounter(double limit_sec);
+	~TimeCounter();
+	double get_progress();
+	void reset();
+	static void update_all_timecounters(float time);
+};
+std::vector<TimeCounter*> TimeCounter::all_timecounters;
+void TimeCounter::update(float time_microseconds)
+{
+	if (should_update == false)
+		return;
+
+	if (limit_acc_microseconds == limit_microseconds)
+	{
+		limit_acc_microseconds = 0;
+	}
+
+	limit_acc_microseconds += time_microseconds;
+
+	if (limit_acc_microseconds >= limit_microseconds)
+	{
+		limit_acc_microseconds = limit_microseconds;
+	}
+}
+TimeCounter::TimeCounter(double limit_sec)
+{
+	this->limit_acc_microseconds = 0;
+	this->limit_microseconds = limit_sec * 1e6;
+	this->should_update = false;
+	TimeCounter::all_timecounters.push_back(this);
+}
+TimeCounter::~TimeCounter()
+{
+	auto position = std::find(TimeCounter::all_timecounters.begin(), TimeCounter::all_timecounters.end(), this);
+	if (position != TimeCounter::all_timecounters.end())
+		TimeCounter::all_timecounters.erase(position);
+}
+double TimeCounter::get_progress()
+{
+	should_update = true;
+
+	return limit_acc_microseconds / limit_microseconds;
+}
+void TimeCounter::reset()
+{
+	limit_acc_microseconds = 0;
+	should_update = false;
+}
+void TimeCounter::update_all_timecounters(float time)
+{
+	for (const auto& tc : TimeCounter::all_timecounters)
+	{
+		tc->update(time);
+	}
+}
+
+
 
 class Spritesheet
 {
@@ -558,6 +634,7 @@ private:
 	double spawn_y;
 	bool blinking;
 	TimeCounter* respawn_time_counter;
+	TicToc* blinking_tic_toc;
 	void collision(char dir)
 	{
 		for (int i = position->top / tile_ground_height; i < (position->top + position->height) / tile_ground_height; i++)
@@ -613,13 +690,15 @@ public:
 		this->shooting = false;
 		this->sight_left = false;
 		this->blinking = false;
-		this->respawn_time_counter = new TimeCounter(3, 0.2);
+		this->respawn_time_counter = new TimeCounter(3);
+		this->blinking_tic_toc = new TicToc(0.3);
 	}
 
 	~Soldier()
 	{
 		delete this->position;
 		delete this->respawn_time_counter;
+		delete this->blinking_tic_toc;
 	}
 
 	void set_hp(int hp)
@@ -724,20 +803,22 @@ public:
 
 		if (blinking)
 		{
-			if (respawn_time_counter->count(time) == TimeCounter::Time::NOT_ACHIEVED)
+			if (respawn_time_counter->get_progress() != 1.0)
 			{
-				TimeCounter::Period period = respawn_time_counter->period(time);
-				if (period == TimeCounter::Period::TIC)
+				TicToc::Period period = blinking_tic_toc->get_period();
+				if (period == TicToc::Period::TIC)
 				{
 					spritesheet->sprite->setColor(sf::Color(0, 0, 0, 0));
 				}
-				else if (period == TimeCounter::Period::TOC)
+				else if (period == TicToc::Period::TOC)
 				{
 					spritesheet->sprite->setColor(sf::Color::White);
 				}
 			}
 			else
 			{
+				blinking_tic_toc->reset();
+				respawn_time_counter->reset();
 				spritesheet->sprite->setColor(sf::Color::White);
 				hp = 10000;
 				blinking = false;
@@ -930,21 +1011,51 @@ void dbg_print_avg_fps(float time)
 	}
 }
 
-void move_viewport_to(float x, float y)
+
+double base_viewport_movespeed = 0.0015;
+
+void move_viewport_to(float x, float y, float time)
 {
 	if (0 + half_viewport_x > x)
 		x = half_viewport_x;
 	else if (x > map_pixels_width - half_viewport_x)
 		x = map_pixels_width - half_viewport_x;
 
-	offsetX = x - half_viewport_x;
-
 	if (map_pixels_height - half_viewport_y < y)
 		y = map_pixels_height - half_viewport_y;
-	//else if (y < 0 + half_viewport_y)
-	//	y = 0 + half_viewport_y;
+	else if (y < 0 + half_viewport_y)
+		y = 0 + half_viewport_y;
+	x -= half_viewport_x;
+	y -= half_viewport_y;
 
-	offsetY = y - half_viewport_y;
+
+
+
+	double s_x = abs(offsetX - x);
+	double s_y = abs(offsetY - y);
+	int dir_x = x > offsetX;
+	int dir_y = y > offsetY;
+
+	double rate_v_x = s_x / (s_x + s_y);
+	double rate_v_y = 1.0 - rate_v_x;
+
+	double dist = sqrt(s_x * s_x + s_y * s_y);
+	double viewport_movespeed = base_viewport_movespeed *  atan(0.003 * dist) * 2 / 3.1415926535;
+
+	double viewport_dx = viewport_movespeed * rate_v_x * (dir_x ? 1 : -1);
+	double viewport_dy = viewport_movespeed * rate_v_y * (dir_y ? 1 : -1);
+
+	double some_x = viewport_dx * time;
+	double some_y = viewport_dy * time;
+
+	x = s_x < some_x ? s_x : some_x;
+	y = s_y < some_y ? s_y : some_y;
+
+	if (s_x < 1 && s_y < 1)
+		return;
+
+	offsetX += x;
+	offsetY += y;
 }
 
 
@@ -980,6 +1091,9 @@ int main()
 	Soldier* player1 = new Soldier(resources->player1, gun1, get_spawn_coordinates(Tile::PLAYER1_SPAWN));
 	Soldier* player2 = new Soldier(resources->player2, gun2, get_spawn_coordinates(Tile::PLAYER2_SPAWN));
 
+	offsetX = get_spawn_coordinates(Tile::PLAYER1_SPAWN).x;
+	offsetY = get_spawn_coordinates(Tile::PLAYER1_SPAWN).y;
+
 	KillManager* killManager = new KillManager();
 	killManager->subscribe(player1);
 	killManager->subscribe(player2);
@@ -996,13 +1110,17 @@ int main()
 	double t = 5;
 	TimeCounter bonus_respawn_time_counter(t);
 
+	TimeCounter viewport_tc(4);
 	while (mainWindow.isOpen())
 	{
 
 #pragma region timer
 		float time = clock.getElapsedTime().asMicroseconds();
+		TimeCounter::update_all_timecounters(time);
+		TicToc::update_all_tic_tocs(time);
 
-		if (bonus_respawn_time_counter.count(time) == TimeCounter::ACHIEVED)
+
+		if (bonus_respawn_time_counter.get_progress() == 1.0)
 		{
 			set_tile(Tile::EMPTY, bonus_last_coords.x, bonus_last_coords.y);
 			bonus_last_coords = get_random_map_coordinate();
@@ -1108,14 +1226,25 @@ int main()
 		interf->set_player1_status_pos(p1_x - offsetX, p1_y - offsetY - 10);
 		interf->set_player2_status_pos(p2_x - offsetX, p2_y - offsetY - 10);
 
-		//if (p1_takes_viewport)
-		//{
-		//	move_viewport_to(p1_x, p1_y);
-		//}
-		//else
-		//{
-		//	move_viewport_to(p2_x, p2_y);
-		//}
+		if (p1_takes_viewport)
+		{
+			move_viewport_to(p1_x, p1_y, time);
+			if (viewport_tc.get_progress() == 1.0)
+			{
+				p1_takes_viewport = false;
+				viewport_tc.reset();
+			}
+
+		}
+		else
+		{
+			move_viewport_to(p2_x, p2_y, time);
+			if (viewport_tc.get_progress() == 1.0)
+			{
+				p1_takes_viewport = true;
+				viewport_tc.reset();
+			}
+		}
 
 		mainWindow.clear(sf::Color::White);
 		mainWindow.draw(*(resources->background_sprite));
