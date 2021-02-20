@@ -5,55 +5,7 @@
 #include<sstream>
 #include<list>
 
-int offsetX, offsetY;
-const double gravity = 1.0 * 1e-8;
-const double player_dx = 0.35 * 1e-3;
-const double player_dy = 0.2 * 1e-2;
-
-const int screen_width = 1600;
-const const int screen_height = 800;
-
-const float half_viewport_x = screen_width / 2;
-const float half_viewport_y = screen_height / 2;
-
-const int tile_ground_height = 32;
-const int tile_ground_width = 32;
-
-int map_tiles_height = 0;	// 50
-int map_tiles_width = 0;	// 100
-int map_pixels_width = 0;	// map_tiles_width* tile_ground_width;
-int map_pixels_height = 0;	// map_tiles_height* tile_ground_height;
-std::vector<sf::Vector2u> empty_tiles_coordinates;
-
-enum Tile
-{
-	// map
-	SOIL = 3111802879,
-	GRASS = 582044927,
-	EMPTY = 2581195519,
-
-	// bonus
-	HEART = 3978044671,
-	SPEED = 2097166,
-	MINIGUN = 2103822,
-
-	// players
-	PLAYER1_SPAWN = 4286523391,
-	PLAYER2_SPAWN = 2281707007,
-};
-
-const Tile no_collision_tile[] = { Tile::EMPTY, Tile::HEART, Tile::SPEED, Tile::MINIGUN, Tile::PLAYER1_SPAWN, Tile::PLAYER2_SPAWN };
-
-bool is_collision(Tile tile)
-{
-	for (int i = 0; i < sizeof(no_collision_tile) / sizeof(*no_collision_tile); i++)
-	{
-		if (tile == no_collision_tile[i])
-			return false;
-	}
-
-	return true;
-}
+#pragma region TimeCounter and TicToc
 
 class TicToc
 {
@@ -140,15 +92,17 @@ private:
 	double limit_microseconds;
 	static std::vector<TimeCounter*> all_timecounters;
 	bool should_update;
+	bool repeat;
 	void update(float time_microseconds);
 public:
-	TimeCounter(double limit_sec);
+	TimeCounter(double limit_sec, bool repeat = true);
 	~TimeCounter();
 	double get_progress();
 	void reset();
 	int get_time();
 	int get_time_reversed();
 	bool started();
+	bool achieved();
 	std::string get_time_as_sring(bool reversed = false);
 	static void update_all_timecounters(float time);
 };
@@ -161,6 +115,11 @@ void TimeCounter::update(float time_microseconds)
 	if (limit_acc_microseconds == limit_microseconds)
 	{
 		limit_acc_microseconds = 0;
+		if (!repeat)
+		{
+			should_update = false;
+			return;
+		}
 	}
 
 	limit_acc_microseconds += time_microseconds;
@@ -170,8 +129,9 @@ void TimeCounter::update(float time_microseconds)
 		limit_acc_microseconds = limit_microseconds;
 	}
 }
-TimeCounter::TimeCounter(double limit_sec)
+TimeCounter::TimeCounter(double limit_sec, bool repeat)
 {
+	this->repeat = repeat;
 	this->limit_acc_microseconds = 0;
 	this->limit_microseconds = limit_sec * 1e6;
 	this->should_update = false;
@@ -206,6 +166,10 @@ bool TimeCounter::started()
 {
 	return limit_acc_microseconds != 0.0;
 }
+bool TimeCounter::achieved()
+{
+	return limit_acc_microseconds == limit_microseconds;
+}
 std::string TimeCounter::get_time_as_sring(bool reversed)
 {
 	int time;
@@ -228,7 +192,404 @@ void TimeCounter::update_all_timecounters(float time)
 	}
 }
 
+#pragma endregion
 
+class Resources
+{
+public:
+	sf::Texture* background_texture;
+	sf::Texture* ground_texture;
+	sf::Texture* heart_texture;
+	sf::Texture* minigun_texture;
+	sf::Texture* speed_texture;
+	sf::Texture* gun_texture;
+	sf::Texture* bullet_texture;
+	sf::IntRect* bullet_rect;
+	sf::Texture* player1_texture;
+	sf::Texture* player2_texture;
+	sf::Font* font;
+	sf::Image* map;
+
+	Resources()
+	{
+		this->background_texture = new sf::Texture();
+		this->ground_texture = new sf::Texture();
+		this->heart_texture = new sf::Texture();
+		this->minigun_texture = new sf::Texture();
+		this->speed_texture = new sf::Texture();
+		this->gun_texture = new sf::Texture();
+		this->bullet_texture = new sf::Texture();
+		this->player1_texture = new sf::Texture();
+		this->player2_texture = new sf::Texture();
+		this->font = new sf::Font();
+		this->map = new sf::Image();
+
+
+		this->background_texture->loadFromFile("./assets/background.png");
+		this->ground_texture->loadFromFile("./assets/ground.png");
+		this->heart_texture->loadFromFile("./assets/heart.png");
+		this->gun_texture->loadFromFile("./assets/gun.png");
+		this->minigun_texture->loadFromFile("./assets/minigun.png");
+		this->speed_texture->loadFromFile("./assets/speed.png");
+		this->bullet_texture->loadFromFile("./assets/bullet.png");
+		this->player2_texture->loadFromFile("./assets/player2.png");
+		this->player1_texture->loadFromFile("./assets/player1.png");
+		this->font->loadFromFile("./assets/arial.ttf");
+		this->map->loadFromFile("./assets/map.png");
+		this->background_texture->setRepeated(true);
+		this->bullet_rect = new sf::IntRect(0, 0, 8, 8);
+	}
+	~Resources()
+	{
+		delete this->background_texture;
+		delete this->ground_texture;
+		delete this->heart_texture;
+		delete this->gun_texture;
+		delete this->minigun_texture;
+		delete this->speed_texture;
+		delete this->bullet_texture;
+		delete this->player1_texture;
+		delete this->player2_texture;
+		delete this->font;
+		delete this->map;
+		delete this->bullet_rect;
+	}
+};
+
+class Viewport
+{
+private:
+	double base_viewport_movespeed = 0.0015;
+	sf::Vector2i _pos;
+	sf::Vector2i _half;
+	sf::Vector2i _size;
+	sf::Vector2i _map_size;
+public:
+	Viewport(sf::Vector2i viewport_size, sf::Vector2i map_size)
+	{
+		this->_pos.x = 0;
+		this->_pos.y = 0;
+		this->_half.x = viewport_size.x / 2;
+		this->_half.y = viewport_size.y / 2;
+		this->_map_size = map_size;
+	}
+
+	sf::Vector2i pos()
+	{
+		return _pos;
+	}
+
+	void pos(sf::Vector2i pos)
+	{
+		this->_pos = pos;
+	}
+
+	void focus(sf::Vector2i pos)
+	{
+		this->_pos.x = pos.x - _half.x;
+		this->_pos.y = pos.y - _half.y;
+	}
+
+	sf::Vector2i half()
+	{
+		return _half;
+	}
+
+	void move_viewport_to(float x, float y, float time)
+	{
+		if (0 + _half.x > x)
+			x = _half.x;
+		else if (x > _map_size.x - _half.x)
+			x = _map_size.x - _half.x;
+
+		if (_map_size.y - _half.y < y)
+			y = _map_size.y - _half.y;
+		else if (y < 0 + _half.y)
+			y = 0 + _half.y;
+
+		x -= _half.x;
+		y -= _half.y;
+
+		double s_x = abs(_pos.x - x);
+		double s_y = abs(_pos.y - y);
+		int dir_x = x > _pos.x;
+		int dir_y = y > _pos.y;
+
+		double rate_v_x = s_x / (s_x + s_y);
+		double rate_v_y = 1.0 - rate_v_x;
+
+		double dist = sqrt(s_x * s_x + s_y * s_y);
+		double viewport_movespeed = base_viewport_movespeed * atan(0.003 * dist) * 2 / 3.1415926535;
+
+		double viewport_dx = viewport_movespeed * rate_v_x * (dir_x ? 1 : -1);
+		double viewport_dy = viewport_movespeed * rate_v_y * (dir_y ? 1 : -1);
+
+		double some_x = viewport_dx * time;
+		double some_y = viewport_dy * time;
+
+		x = s_x < some_x ? s_x : some_x;
+		y = s_y < some_y ? s_y : some_y;
+
+		if (s_x < 1 && s_y < 1)
+			return;
+
+		_pos.x += x;
+		_pos.y += y;
+	}
+};
+
+class Map
+{
+public:
+	enum Tile
+	{
+		// map
+		SOIL = 3111802879,
+		GRASS = 582044927,
+		EMPTY = 2581195519,
+
+		// bonus
+		HEART = 3978044671,
+		SPEED = 2097166,
+		MINIGUN = 2103822,
+
+		// players
+		PLAYER1_SPAWN = 4286523391,
+		PLAYER2_SPAWN = 2281707007,
+	};
+	static const int tile_height = 32;
+	static const int tile_width = 32;
+private:
+	sf::Image* map;
+	sf::Vector2i size_t;
+	sf::Vector2i size_p;
+	Viewport* viewport;
+
+	std::vector<sf::Vector2i> empty_tiles_coordinates;
+
+	sf::Vector2i heart_last_coords;
+	sf::Vector2i minigun_last_coords;
+	sf::Vector2i speed_last_coords;
+	TimeCounter* heart_respawn_time_counter;
+	TimeCounter* speed_respawn_time_counter;
+	TimeCounter* minigun_respawn_time_counter;
+
+	sf::Sprite* background_sprite;
+	sf::RectangleShape* ground_tile;
+	sf::RectangleShape* heart_tile;
+	sf::RectangleShape* minigun_tile;
+	sf::RectangleShape* speed_tile;
+public:
+	Map(sf::Image* map, sf::Vector2i screen_size)
+	{
+		this->map = map;
+		auto map_size = map->getSize();
+		this->size_t = sf::Vector2i(map_size.x, map_size.y);
+		this->size_p = sf::Vector2i(map_size.x * tile_width, map_size.y * tile_height);
+
+		this->viewport = new Viewport(screen_size, size_p);
+
+		for (int i = 0; i < map_size.y; i++)
+		{
+			for (int j = 0; j < map_size.x; j++)
+			{
+				if (!is_tile_collision((Tile)map->getPixel(j, i).toInteger()))
+				{
+					empty_tiles_coordinates.push_back(sf::Vector2i(j, i));
+				}
+			}
+		}
+
+		this->heart_last_coords = get_random_map_coordinate();
+		this->minigun_last_coords = get_random_map_coordinate();
+		this->speed_last_coords = get_random_map_coordinate();
+		this->heart_respawn_time_counter = new TimeCounter(5);
+		this->speed_respawn_time_counter = new TimeCounter(4.5);
+		this->minigun_respawn_time_counter = new TimeCounter(4);
+		set_tile(Tile::HEART, heart_last_coords.x, heart_last_coords.y);
+		set_tile(Tile::SPEED, speed_last_coords.x, speed_last_coords.y);
+		set_tile(Tile::MINIGUN, minigun_last_coords.x, minigun_last_coords.y);
+
+		this->background_sprite = new sf::Sprite();
+		this->ground_tile = new sf::RectangleShape(sf::Vector2f(tile_width, tile_height));
+		this->heart_tile = new sf::RectangleShape(sf::Vector2f(tile_width, tile_height));
+		this->minigun_tile = new sf::RectangleShape(sf::Vector2f(tile_width, tile_height));
+		this->speed_tile = new sf::RectangleShape(sf::Vector2f(tile_width, tile_height));
+	}
+	void update()
+	{
+		if (heart_respawn_time_counter->get_progress() == 1.0)
+		{
+			set_tile(Tile::EMPTY, heart_last_coords.x, heart_last_coords.y);
+			heart_last_coords = get_random_map_coordinate();
+			set_tile(Tile::HEART, heart_last_coords.x, heart_last_coords.y);
+			heart_tile->setFillColor(sf::Color::White);
+		}
+		else
+		{
+			heart_tile->setFillColor(sf::Color(255, 255, 255, 255 * (1 - heart_respawn_time_counter->get_progress())));
+		}
+
+		if (minigun_respawn_time_counter->get_progress() == 1.0)
+		{
+			set_tile(Tile::EMPTY, minigun_last_coords.x, minigun_last_coords.y);
+			minigun_last_coords = get_random_map_coordinate();
+			set_tile(Tile::MINIGUN, minigun_last_coords.x, minigun_last_coords.y);
+			minigun_tile->setFillColor(sf::Color::White);
+		}
+		else
+		{
+			minigun_tile->setFillColor(sf::Color(255, 255, 255, 255 * (1 - minigun_respawn_time_counter->get_progress())));
+		}
+
+		if (speed_respawn_time_counter->get_progress() == 1.0)
+		{
+			set_tile(Tile::EMPTY, speed_last_coords.x, speed_last_coords.y);
+			speed_last_coords = get_random_map_coordinate();
+			set_tile(Tile::SPEED, speed_last_coords.x, speed_last_coords.y);
+			speed_tile->setFillColor(sf::Color::White);
+		}
+		else
+		{
+			speed_tile->setFillColor(sf::Color(255, 255, 255, 255 * (1 - speed_respawn_time_counter->get_progress())));
+		}
+
+	}
+	Viewport* get_viewport()
+	{
+		return viewport;
+	}
+
+	void draw_map(sf::RenderWindow* mainWindow)
+	{
+		mainWindow->draw(*(background_sprite));
+
+		for (int i = 0; i < size_t.y; i++)
+		{
+			for (int j = 0; j < size_t.x; j++)
+			{
+				Tile tile = get_tile_by_pos(j, i);
+
+				float x = j * tile_width - viewport->pos().x;
+				float y = i * tile_height - viewport->pos().y;
+
+				if (tile == Tile::SOIL)
+				{
+					ground_tile->setTextureRect(sf::IntRect(515, 119, 256, 137));
+					ground_tile->setPosition(x, y);
+					mainWindow->draw(*(ground_tile));
+				}
+				else if (tile == Tile::GRASS)
+				{
+					ground_tile->setTextureRect(sf::IntRect(515, 400, 256, 137));
+					ground_tile->setPosition(x, y);
+					mainWindow->draw(*(ground_tile));
+				}
+				else if (tile == Tile::HEART)
+				{
+					heart_tile->setPosition(x, y);
+					mainWindow->draw(*(heart_tile));
+				}
+				else if (tile == Tile::MINIGUN)
+				{
+					minigun_tile->setPosition(x, y);
+					mainWindow->draw(*(minigun_tile));
+				}
+				else if (tile == Tile::SPEED)
+				{
+					speed_tile->setPosition(x, y);
+					mainWindow->draw(*(speed_tile));
+				}
+			}
+		}
+	}
+
+
+	sf::Vector2i get_size_in_tiles()
+	{
+		return size_t;
+	}
+	sf::Vector2i get_size_in_pixels()
+	{
+		return size_p;
+	}
+	~Map()
+	{
+		delete this->background_sprite;
+		delete this->ground_tile;
+		delete this->heart_tile;
+		delete this->minigun_tile;
+		delete this->speed_tile;
+	}
+	Map* set_bg_texture(sf::Texture* texture, sf::Vector2i screen_size)
+	{
+		this->background_sprite->setTextureRect(sf::IntRect(0, 0, screen_size.x, screen_size.y));
+		this->background_sprite->setTexture(*texture);
+		return this;
+	}
+	Map* set_heart_texture(sf::Texture* texture)
+	{
+		this->heart_tile->setTexture(texture);
+		return this;
+	}
+	Map* set_speed_texture(sf::Texture* texture)
+	{
+		this->speed_tile->setTexture(texture);
+		return this;
+	}
+	Map* set_minigun_texture(sf::Texture* texture)
+	{
+		this->minigun_tile->setTexture(texture);
+		return this;
+	}
+	Map* set_ground_texture(sf::Texture* texture)
+	{
+		this->ground_tile->setTexture(texture);
+		return this;
+	}
+
+	bool is_tile_collision(Tile tile)
+	{
+		Tile no_collision_tile[] = { Tile::EMPTY, Tile::HEART, Tile::SPEED, Tile::MINIGUN, Tile::PLAYER1_SPAWN, Tile::PLAYER2_SPAWN };
+
+		for (int i = 0; i < sizeof(no_collision_tile) / sizeof(*no_collision_tile); i++)
+		{
+			if (tile == no_collision_tile[i])
+				return false;
+		}
+
+		return true;
+	}
+
+	Tile get_tile_by_pos(int x, int y)
+	{
+		return (Tile)(this->map->getPixel(x, y).toInteger());
+	}
+
+	void set_tile(Tile tile, int x, int y)
+	{
+		this->map->setPixel(x, y, sf::Color(tile));
+	}
+
+	sf::Vector2f get_pos_by_tile(Tile tile)
+	{
+		for (int i = 0; i < size_t.y; i++)
+		{
+			for (int j = 0; j < size_t.x; j++)
+			{
+				if (get_tile_by_pos(j, i) == tile)
+					return sf::Vector2f(j * tile_width, i * tile_height);
+			}
+
+		}
+		return sf::Vector2f(0, 0);
+	}
+
+	sf::Vector2i get_random_map_coordinate()
+	{
+		return empty_tiles_coordinates[rand() % (empty_tiles_coordinates.size() - 1)];
+	}
+};
 
 class Spritesheet
 {
@@ -347,135 +708,10 @@ public:
 	}
 };
 
-class Resources
-{
-public:
-	sf::Texture* background_texture;
-	sf::Sprite* background_sprite;
-
-	sf::Texture* ground_texture;
-	sf::RectangleShape* ground_tile;
-
-	sf::Texture* heart_texture;
-	sf::RectangleShape* heart_tile;
-
-	sf::Texture* minigun_texture;
-	sf::RectangleShape* minigun_tile;
-
-	sf::Texture* speed_texture;
-	sf::RectangleShape* speed_tile;
-
-	sf::Texture* gun_texture;
-	sf::Texture* bullet_texture;
-	sf::Texture* player1_spritesheet;
-	sf::Texture* player2_spritesheet;
-	sf::Font* font;
-	sf::Image* map;
-	Spritesheet* player1;
-	Spritesheet* player2;
-	Resources()
-	{
-		this->background_texture = new sf::Texture();
-		this->background_sprite = new sf::Sprite();
-
-		this->ground_texture = new sf::Texture();
-		this->ground_tile = new sf::RectangleShape(sf::Vector2f(tile_ground_width, tile_ground_height));
-
-		this->heart_texture = new sf::Texture();
-		this->heart_tile = new sf::RectangleShape(sf::Vector2f(tile_ground_width, tile_ground_height));
-
-		this->minigun_texture = new sf::Texture();
-		this->minigun_tile = new sf::RectangleShape(sf::Vector2f(tile_ground_width, tile_ground_height));
-
-		this->speed_texture = new sf::Texture();
-		this->speed_tile = new sf::RectangleShape(sf::Vector2f(tile_ground_width, tile_ground_height));
-
-		this->gun_texture = new sf::Texture();
-		this->bullet_texture = new sf::Texture();
-		this->player1_spritesheet = new sf::Texture();
-		this->player2_spritesheet = new sf::Texture();
-		this->font = new sf::Font();
-		this->map = new sf::Image();
-
-		this->background_texture->loadFromFile("./assets/background.png");
-		this->ground_texture->loadFromFile("./assets/ground.png");
-		this->heart_texture->loadFromFile("./assets/heart.png");
-		this->gun_texture->loadFromFile("./assets/gun.png");
-		this->minigun_texture->loadFromFile("./assets/minigun.png");
-		this->speed_texture->loadFromFile("./assets/speed.png");
-		this->bullet_texture->loadFromFile("./assets/bullet.png");
-		this->player2_spritesheet->loadFromFile("./assets/player2.png");
-		this->player1_spritesheet->loadFromFile("./assets/player1.png");
-		this->font->loadFromFile("./assets/arial.ttf");
-		this->map->loadFromFile("./assets/map.png");
-
-		auto map_size = map->getSize();
-		map_tiles_width = map_size.x;
-		map_tiles_height = map_size.y;
-		map_pixels_width = map_tiles_width * tile_ground_width;
-		map_pixels_height = map_tiles_height * tile_ground_height;
-		for (int i = 0; i < map_size.y; i++)
-		{
-			for (int j = 0; j < map_size.x; j++)
-			{
-				if (!is_collision((Tile)map->getPixel(j, i).toInteger()))
-				{
-					empty_tiles_coordinates.push_back(sf::Vector2u(j, i));
-				}
-			}
-		}
-
-		this->background_texture->setRepeated(true);
-		this->background_sprite->setTexture(*background_texture);
-		this->background_sprite->setTextureRect(sf::IntRect(0, 0, screen_width, screen_height));
-
-		this->player1 = new Spritesheet(player1_spritesheet, 90, 55, 10);
-		this->player2 = new Spritesheet(player2_spritesheet, 90, 55, 10);
-
-		this->ground_tile->setTexture(this->ground_texture);
-		this->heart_tile->setTexture(this->heart_texture);
-		this->minigun_tile->setTexture(this->minigun_texture);
-		this->speed_tile->setTexture(this->speed_texture);
-	}
-	~Resources()
-	{
-		delete this->background_texture;
-		delete this->background_sprite;
-		delete this->ground_texture;
-		delete this->ground_tile;
-		delete this->heart_texture;
-		delete this->heart_tile;
-		delete this->minigun_tile;
-		delete this->speed_tile;
-		delete this->gun_texture;
-		delete this->minigun_texture;
-		delete this->speed_texture;
-		delete this->bullet_texture;
-		delete this->player1_spritesheet;
-		delete this->player2_spritesheet;
-		delete this->font;
-		delete this->map;
-		delete this->player1;
-		delete this->player2;
-	}
-};
-
-Resources* resources = new Resources();
-
-Tile get_tile(int x, int y)
-{
-	return (Tile)resources->map->getPixel(x, y).toInteger();
-}
-
-void set_tile(Tile tile, int x, int y)
-{
-	resources->map->setPixel(x, y, sf::Color(tile));
-}
-
-
 class Interface
 {
 private:
+	sf::Vector2i screen_size;
 	sf::Text* p1_hp;
 	sf::Text* p2_hp;
 	sf::Text* score;
@@ -484,8 +720,9 @@ private:
 	sf::Text* round_result;
 	float text_offset = 100;
 public:
-	Interface()
+	Interface(sf::Font* font, sf::Vector2i screen_size)
 	{
+		this->screen_size = screen_size;
 		this->p1_hp = new sf::Text();
 		this->p2_hp = new sf::Text();
 		this->score = new sf::Text();
@@ -493,39 +730,36 @@ public:
 		this->debug = new sf::Text();
 		this->round_result = new sf::Text();
 
-		this->p1_hp->setFont(*(resources->font));
+		this->p1_hp->setFont(*(font));
 		this->p1_hp->setCharacterSize(10);
 		this->p1_hp->setOutlineColor(sf::Color::Black);
 		this->p1_hp->setOutlineThickness(2);
 
-		this->p2_hp->setFont(*(resources->font));
+		this->p2_hp->setFont(*(font));
 		this->p2_hp->setCharacterSize(10);
 		this->p2_hp->setOutlineColor(sf::Color::Black);
 		this->p2_hp->setOutlineThickness(2);
 
-		this->score->setFont(*(resources->font));
+		this->score->setFont(*(font));
 		this->score->setCharacterSize(20);
 		this->score->setOutlineColor(sf::Color::Black);
 		this->score->setOutlineThickness(3);
-		this->score->setPosition(half_viewport_x - 100, 0);
 
-		this->time->setFont(*(resources->font));
+		this->time->setFont(*(font));
 		this->time->setCharacterSize(30);
 		this->time->setOutlineColor(sf::Color::Black);
 		this->time->setOutlineThickness(3);
-		this->time->setPosition(half_viewport_x - 100, 40);
 
-		this->debug->setFont(*(resources->font));
-		this->debug->setCharacterSize(10);
+		this->debug->setFont(*(font));
+		this->debug->setCharacterSize(12);
 		this->debug->setOutlineColor(sf::Color::Black);
-		this->debug->setOutlineThickness(3);
+		this->debug->setOutlineThickness(2);
 		this->debug->setPosition(0, 0);
 
-		this->round_result->setFont(*(resources->font));
+		this->round_result->setFont(*(font));
 		this->round_result->setCharacterSize(50);
 		this->round_result->setOutlineColor(sf::Color::Black);
 		this->round_result->setOutlineThickness(3);
-		this->round_result->setPosition(half_viewport_x - 300, half_viewport_y);
 	}
 
 	~Interface()
@@ -541,10 +775,14 @@ public:
 	void set_round_result(std::string res)
 	{
 		this->round_result->setString(res);
+		auto string_size = this->round_result->getGlobalBounds();
+		this->round_result->setPosition(screen_size.x / 2 - string_size.width / 2, screen_size.y / 2 - string_size.height / 2);
 	}
 	void set_score(std::string score)
 	{
 		this->score->setString(score);
+		auto string_size = this->score->getGlobalBounds();
+		this->score->setPosition(screen_size.x / 2 - string_size.width / 2, 0);
 	}
 	void set_debug(std::string debug)
 	{
@@ -553,38 +791,31 @@ public:
 	void set_time(std::string time)
 	{
 		this->time->setString(time);
+		auto string_size = this->time->getGlobalBounds();
+		this->time->setPosition(screen_size.x / 2 - string_size.width / 2, 25);
 	}
 
-	void set_player1_status(std::string status)
+	void set_p1_hp(std::string status, sf::Vector2f pos)
 	{
 		this->p1_hp->setString(status);
+		this->p1_hp->setPosition(pos);
 	}
-	void set_player2_status(std::string status)
+
+	void set_p2_hp(std::string status, sf::Vector2f pos)
 	{
 		this->p2_hp->setString(status);
-		this->p2_hp->setPosition(1600 - (p2_hp->getGlobalBounds().width + text_offset), 0.f);
-	}
-
-	void set_player1_status_pos(int x, int y)
-	{
-		this->p1_hp->setPosition(sf::Vector2f(x, y));
-	}
-
-	void set_player2_status_pos(int x, int y)
-	{
-		this->p2_hp->setPosition(sf::Vector2f(x, y));
+		//this->p2_hp->setPosition(1600 - (p2_hp->getGlobalBounds().width + text_offset), 0.f);
+		this->p2_hp->setPosition(pos);
 	}
 
 	sf::Text* get_player1_status()
 	{
 		return this->p1_hp;
 	}
-
 	sf::Text* get_player2_status()
 	{
 		return this->p2_hp;
 	}
-
 	sf::Text* get_score()
 	{
 		return this->score;
@@ -608,7 +839,7 @@ public:
 class IBullet
 {
 public:
-	virtual void update(double time) = 0;
+	virtual void update(double time, Map* map) = 0;
 	virtual double get_damage() = 0;
 	virtual void set_damage(double dmg) = 0;
 	virtual bool is_alive() = 0;
@@ -624,21 +855,45 @@ private:
 	double b_speed;
 	double b_damage;
 public:
-	void update(double time)
+	MachineGunBullet(double damage, double speed, float x_pos, float y_pos, bool flight_dir_left, sf::Texture* bullet_texture, sf::IntRect* bullet_rect)
+	{
+		this->b_damage = damage;
+		this->b_speed = flight_dir_left ? -speed : speed;
+		this->sprite = new sf::Sprite(*(bullet_texture));
+		this->sprite->setTextureRect(*bullet_rect);
+		if (flight_dir_left)
+		{
+			this->sprite->setTextureRect(sf::IntRect(bullet_rect->left + bullet_rect->width, bullet_rect->top, -bullet_rect->width, bullet_rect->height));
+		}
+		else
+		{
+			this->sprite->setTextureRect(*bullet_rect);
+		}
+		this->position = new sf::FloatRect(x_pos, y_pos, bullet_rect->width, bullet_rect->height);
+	}
+	~MachineGunBullet()
+	{
+		delete this->sprite;
+		delete this->position;
+	}
+
+	void update(double time, Map* map)
 	{
 		this->position->left += b_speed * time;
-		for (int i = position->top / tile_ground_height; i < (position->top + position->height) / tile_ground_height; i++)
+
+		for (int i = position->top / Map::tile_height; i < (position->top + position->height) / Map::tile_height; i++)
 		{
-			for (int j = position->left / tile_ground_width; j < (position->left + position->width) / tile_ground_width; j++)
+			for (int j = position->left / Map::tile_width; j < (position->left + position->width) / Map::tile_width; j++)
 			{
-				if ((i >= 0 && i < map_tiles_height) && (j >= 0 && j < map_tiles_width))
-					if (is_collision(get_tile(j, i)))
+				if ((i >= 0 && i < map->get_size_in_tiles().y) && (j >= 0 && j < map->get_size_in_tiles().x))
+					if (map->is_tile_collision(map->get_tile_by_pos(j, i)))
 					{
 						b_damage = 0;
 					}
 			}
 		}
-		this->sprite->setPosition(position->left - offsetX, position->top - offsetY);
+
+		this->sprite->setPosition(position->left - map->get_viewport()->pos().x, position->top - map->get_viewport()->pos().y);
 	}
 	double get_damage()
 	{
@@ -648,7 +903,6 @@ public:
 	{
 		this->b_damage = dmg;
 	}
-
 	bool is_alive()
 	{
 		return b_damage != 0;
@@ -661,23 +915,6 @@ public:
 	{
 		return position;
 	}
-	MachineGunBullet(double damage, double speed, float x_pos, float y_pos, bool flight_dir_left)
-	{
-		this->b_damage = damage;
-		this->b_speed = flight_dir_left ? -speed : speed;
-		this->sprite = new sf::Sprite(*(resources->bullet_texture));
-		if (flight_dir_left)
-		{
-			sf::IntRect rect = this->sprite->getTextureRect();
-			this->sprite->setTextureRect(sf::IntRect(rect.left + rect.width, rect.top, -rect.width, rect.height));
-		}
-		this->position = new sf::FloatRect(x_pos, y_pos, 4, 4);
-	}
-	~MachineGunBullet()
-	{
-		delete this->sprite;
-		delete this->position;
-	}
 };
 
 class BulletGenerator
@@ -685,32 +922,32 @@ class BulletGenerator
 protected:
 	double init_b_damage;
 	double init_b_speed;
-	double rate_of_fire;
-	double reloaded_percentage;
+	TimeCounter* reload_tc;
+	sf::Texture* bullet_texture;
+	sf::IntRect* bullet_rect;
+
 	virtual IBullet* create_bullet(float x_pos, float y_pos, bool flight_dir_left) = 0;
 	BulletGenerator() {}
 public:
+	~BulletGenerator() 
+	{
+		delete this->reload_tc;
+	}
 	IBullet* get_bullet(float x_pos, float y_pos, bool flight_dir_left)
 	{
-		if (is_reloaded())
+		if (!reload_tc->started())
 		{
-			this->reloaded_percentage = 0;
+			reload_tc->get_progress();
 			IBullet* bullet = create_bullet(x_pos, y_pos, flight_dir_left);
 			return bullet;
 		}
 		else
 			return nullptr;
 	}
-	void update(double time)
+	void set_params(double damage, double speed)
 	{
-		if (!is_reloaded())
-		{
-			reloaded_percentage += rate_of_fire * time;
-		}
-	}
-	bool is_reloaded()
-	{
-		return this->reloaded_percentage >= 100;
+		this->init_b_damage = damage;
+		this->init_b_speed = speed;
 	}
 };
 
@@ -719,16 +956,17 @@ class MGBulletGenerator : public BulletGenerator
 private:
 	IBullet* create_bullet(float x_pos, float y_pos, bool flight_dir_left)
 	{
-		IBullet* bullet = new MachineGunBullet(init_b_damage, init_b_speed, x_pos, y_pos, flight_dir_left);
+		IBullet* bullet = new MachineGunBullet(init_b_damage, init_b_speed, x_pos, y_pos, flight_dir_left, bullet_texture, bullet_rect);
 		return bullet;
 	}
 public:
-	MGBulletGenerator(double damage, double speed)
+	MGBulletGenerator(double damage, double speed, sf::Texture* bullet_texture, sf::IntRect* bullet_rect)
 	{
 		this->init_b_damage = damage;
 		this->init_b_speed = speed;
-		this->rate_of_fire = 0.003;
-		this->reloaded_percentage = 100;
+		this->bullet_texture = bullet_texture;
+		this->bullet_rect = bullet_rect;
+		this->reload_tc = new TimeCounter(0.05, false);
 	}
 };
 
@@ -749,53 +987,56 @@ private:
 	bool sight_left;
 	double spawn_x;
 	double spawn_y;
+	double x_speed;
+	bool speed_boosted;
+	bool gun_boosted;
 	bool blinking;
 	TimeCounter* respawn_time_counter;
 	TicToc* blinking_tic_toc;
-	void collision(char dir)
+	void collision(char dir, Map* map)
 	{
-		for (int i = position->top / tile_ground_height; i < (position->top + position->height) / tile_ground_height; i++)
+		for (int i = position->top / Map::tile_height; i < (position->top + position->height) / Map::tile_height; i++)
 		{
-			for (int j = position->left / tile_ground_width; j < (position->left + position->width) / tile_ground_width; j++)
+			for (int j = position->left / Map::tile_width; j < (position->left + position->width) / Map::tile_width; j++)
 			{
-				if ((i >= 0 && i < map_tiles_height) && (j >= 0 && j < map_tiles_width))
+				if ((i >= 0 && i < map->get_size_in_tiles().y) && (j >= 0 && j < map->get_size_in_tiles().x))
 				{
-					Tile tile = get_tile(j, i);
-					if (tile == Tile::HEART)
+					Map::Tile tile = map->get_tile_by_pos(j, i);
+					if (tile == Map::Tile::HEART)
 					{
-						set_tile(Tile::EMPTY, j, i);
+						map->set_tile(Map::Tile::EMPTY, j, i);
 						set_hp(10000);
 					}
-					else if (tile == Tile::SPEED)
+					else if (tile == Map::Tile::SPEED)
 					{
-						set_tile(Tile::EMPTY, j, i);
-						dx *= 1.5;
+						map->set_tile(Map::Tile::EMPTY, j, i);
+						speed_boosted = !speed_boosted;
 					}
-					else if (tile == Tile::MINIGUN)
+					else if (tile == Map::Tile::MINIGUN)
 					{
-						set_tile(Tile::EMPTY, j, i);
-
+						map->set_tile(Map::Tile::EMPTY, j, i);
+						gun_boosted = !gun_boosted;
 					}
 
-					if (is_collision(get_tile(j, i)))
+					if (map->is_tile_collision(map->get_tile_by_pos(j, i)))
 					{
 						if (dx > 0 && dir == 'x')
 						{
-							position->left = j * tile_ground_width - position->width;
+							position->left = j * Map::tile_width - position->width;
 						}
 						if (dx < 0 && dir == 'x')
 						{
-							position->left = j * tile_ground_width + tile_ground_width;
+							position->left = j * Map::tile_width + Map::tile_width;
 						}
 						if (dy > 0 && dir == 'y')
 						{
-							position->top = i * tile_ground_height - position->height;
+							position->top = i * Map::tile_height - position->height;
 							dy = 0;
 							on_ground = true;
 						}
 						if (dy < 0 && dir == 'y')
 						{
-							position->top = i * tile_ground_height + tile_ground_height;
+							position->top = i * Map::tile_height + Map::tile_height;
 							dy = 0;
 						}
 					}
@@ -804,15 +1045,18 @@ private:
 		}
 	}
 public:
-	Soldier(Spritesheet* spritesheet, BulletGenerator* gun, sf::Vector2f spawn)
+	Soldier(Spritesheet* spritesheet, sf::Vector2f spawn)
 	{
 		this->spritesheet = spritesheet;
-		this->gun = gun;
+		this->gun = nullptr;
 		this->position = new sf::FloatRect(spawn.x, spawn.y, spritesheet->texture_character_width, spritesheet->texture_character_height);
 		this->score = 0;
 		this->hp = 10000;
 		this->dx = 0;
 		this->dy = 0;
+		this->x_speed = 0;
+		this->speed_boosted = false;
+		this->gun_boosted = false;
 		this->spawn_x = spawn.x;
 		this->spawn_y = spawn.y;
 		this->on_ground = false;
@@ -828,6 +1072,26 @@ public:
 		delete this->position;
 		delete this->respawn_time_counter;
 		delete this->blinking_tic_toc;
+	}
+
+	void respawn()
+	{
+		this->set_position(spawn_x, spawn_y);
+		this->set_hp(10000);
+		this->score = 0;
+		this->blinking = true;
+		this->gun_boosted = false;
+		this->speed_boosted = false;
+	}
+
+	bool is_speed_boosted()
+	{
+		return speed_boosted;
+	}
+
+	bool is_gun_boosted()
+	{
+		return gun_boosted;
 	}
 
 	void set_hp(int hp)
@@ -849,6 +1113,9 @@ public:
 	}
 	std::pair<Soldier*, IBullet*> shoot()
 	{
+		if (gun == nullptr)
+			return std::make_pair(this, nullptr);
+
 		IBullet* bullet = nullptr;
 
 		if (sight_left)
@@ -882,12 +1149,15 @@ public:
 		this->dy = dy;
 	}
 
+	void set_gun(BulletGenerator* gun)
+	{
+		this->gun = gun;
+	}
+
 	void set_position(int x, int y)
 	{
 		position->left = x;
 		position->top = y;
-		//offsetX = 0;
-		//offsetY = 0;
 	}
 
 	sf::FloatRect* get_position()
@@ -915,30 +1185,32 @@ public:
 
 		if (this->hp <= 0)
 		{
-			this->hp = 0;
-			blinking = true;
-			set_position(spawn_x, spawn_y);
+			respawn();
 			return true;
 		}
 
 		return false;
 	}
 
-	void update(double time)
+	void update(double time, double gravity, Map* map)
 	{
-		//std::cout << position->left << "\t" << position->top << std::endl;
-		gun->update(time);
-
 		on_ground = false;
 
 		if (shooting) dx = 0;
-		position->left += dx * time;
-		collision('x');
+		position->left += dx * time + (dx > 0 ? x_speed : dx < 0 ? -x_speed : 0);
+		collision('x', map);
 
 
 		dy += gravity * time;
 		position->top += dy * time;
-		collision('y');
+		collision('y', map);
+
+		gun_boosted
+			? gun->set_params(150, 0.0025)
+			: gun->set_params(100, 0.0008);
+		speed_boosted
+			? x_speed = 2
+			: x_speed = 0;
 
 		if (blinking)
 		{
@@ -962,7 +1234,6 @@ public:
 				hp = 10000;
 				blinking = false;
 			}
-
 		}
 
 		//Animation
@@ -989,8 +1260,8 @@ public:
 			spritesheet->shoot(sight_left, time);
 		}
 
-		double sprite_x = position->left - offsetX;
-		double sprite_y = position->top - offsetY;
+		double sprite_x = position->left - map->get_viewport()->pos().x;
+		double sprite_y = position->top - map->get_viewport()->pos().y;
 
 		if (sight_left)
 		{
@@ -1006,48 +1277,6 @@ public:
 		shooting = false;
 	}
 };
-
-void draw_map(sf::RenderWindow* mainWindow)
-{
-	for (int i = 0; i < map_tiles_height; i++)
-	{
-		for (int j = 0; j < map_tiles_width; j++)
-		{
-			Tile tile = (Tile)resources->map->getPixel(j, i).toInteger();
-
-			float x = j * tile_ground_width - offsetX;
-			float y = i * tile_ground_height - offsetY;
-
-			if (tile == Tile::SOIL)
-			{
-				resources->ground_tile->setTextureRect(sf::IntRect(515, 119, 256, 137));
-				resources->ground_tile->setPosition(x, y);
-				mainWindow->draw(*(resources->ground_tile));
-			}
-			else if (tile == Tile::GRASS)
-			{
-				resources->ground_tile->setTextureRect(sf::IntRect(515, 400, 256, 137));
-				resources->ground_tile->setPosition(x, y);
-				mainWindow->draw(*(resources->ground_tile));
-			}
-			else if (tile == Tile::HEART)
-			{
-				resources->heart_tile->setPosition(x, y);
-				mainWindow->draw(*(resources->heart_tile));
-			}
-			else if (tile == Tile::MINIGUN)
-			{
-				resources->minigun_tile->setPosition(x, y);
-				mainWindow->draw(*(resources->minigun_tile));
-			}
-			else if (tile == Tile::SPEED)
-			{
-				resources->speed_tile->setPosition(x, y);
-				mainWindow->draw(*(resources->speed_tile));
-			}
-		}
-	}
-}
 
 class KillManager
 {
@@ -1080,7 +1309,7 @@ public:
 			shots.at(shot.first)->push_back(shot.second);
 	}
 
-	void update(float time)
+	void update(float time, Map* map)
 	{
 		for (const auto& soldier_shots : shots)
 		{
@@ -1102,7 +1331,7 @@ public:
 			}
 			for (const auto& bullet : *bullets)
 			{
-				bullet->update(time);
+				bullet->update(time, map);
 			}
 		}
 
@@ -1121,9 +1350,10 @@ public:
 					if (bullet->get_position()->intersects(*(current_soldier->get_position())))
 					{
 						bool is_enemy_dead = current_soldier->take_damage(bullet->get_damage());
+
 						if (is_enemy_dead)
 							soldier->incr_score();
-						//bullet->set_damage(bullet->get_damage() / 2 - bullet->get_damage() * 0.1);
+
 						bullet->set_damage(0);
 					}
 				}
@@ -1144,202 +1374,71 @@ public:
 	}
 };
 
-const int pool = 500;
-int curr_call = 0;
-double sum_time = 0;
-void dbg_print_avg_fps(float time)
+class Game
 {
-	curr_call++;
-	if (curr_call <= pool)
-	{
-		sum_time += time;
-	}
-	else
-	{
-		double avg_time = (double)sum_time / (double)pool;
-		std::cout << (1 / (avg_time / 1e6)) << std::endl;
-		curr_call = 0;
-		sum_time = 0;
-	}
-}
+public:
+	const double gravity = 1.0 * 1e-8;
+	const double player_dx = 0.35 * 1e-3;
+	const double player_dy = 0.2 * 1e-2;
+private:
+	Resources* res;
+	Map* map;
+	Interface* interf;
 
-
-double base_viewport_movespeed = 0.0015;
-
-void move_viewport_to(float x, float y, float time)
-{
-	if (0 + half_viewport_x > x)
-		x = half_viewport_x;
-	else if (x > map_pixels_width - half_viewport_x)
-		x = map_pixels_width - half_viewport_x;
-
-	if (map_pixels_height - half_viewport_y < y)
-		y = map_pixels_height - half_viewport_y;
-	else if (y < 0 + half_viewport_y)
-		y = 0 + half_viewport_y;
-	x -= half_viewport_x;
-	y -= half_viewport_y;
-
-
-
-
-	double s_x = abs(offsetX - x);
-	double s_y = abs(offsetY - y);
-	int dir_x = x > offsetX;
-	int dir_y = y > offsetY;
-
-	double rate_v_x = s_x / (s_x + s_y);
-	double rate_v_y = 1.0 - rate_v_x;
-
-	double dist = sqrt(s_x * s_x + s_y * s_y);
-	double viewport_movespeed = base_viewport_movespeed * atan(0.003 * dist) * 2 / 3.1415926535;
-
-	double viewport_dx = viewport_movespeed * rate_v_x * (dir_x ? 1 : -1);
-	double viewport_dy = viewport_movespeed * rate_v_y * (dir_y ? 1 : -1);
-
-	double some_x = viewport_dx * time;
-	double some_y = viewport_dy * time;
-
-	x = s_x < some_x ? s_x : some_x;
-	y = s_y < some_y ? s_y : some_y;
-
-	if (s_x < 1 && s_y < 1)
-		return;
-
-	offsetX += x;
-	offsetY += y;
-}
-
-
-sf::Vector2f get_spawn_coordinates(Tile spawn_tile)
-{
-	for (int i = 0; i < map_tiles_height; i++)
-	{
-		for (int j = 0; j < map_tiles_width; j++)
-		{
-			if (get_tile(j, i) == spawn_tile)
-				return sf::Vector2f(j * tile_ground_width, i * tile_ground_height);
-		}
-
-	}
-	return sf::Vector2f(map_tiles_width / 2, 0);
-}
-
-sf::Vector2u get_random_map_coordinate()
-{
-	return empty_tiles_coordinates[rand() % (empty_tiles_coordinates.size() - 1)];
-}
-
-sf::Vector2u heart_last_coords = get_random_map_coordinate();
-sf::Vector2u minigun_last_coords = get_random_map_coordinate();
-sf::Vector2u speed_last_coords = get_random_map_coordinate();
-
-int main()
-{
-	sf::RenderWindow mainWindow(sf::VideoMode(screen_width, screen_height), "SFML_Duel");
-	mainWindow.setFramerateLimit(180);
-
-	BulletGenerator* gun1 = new MGBulletGenerator(100, 0.0005);
-	BulletGenerator* gun2 = new MGBulletGenerator(100, 0.005);
-
-	Soldier* player1 = new Soldier(resources->player1, gun1, get_spawn_coordinates(Tile::PLAYER1_SPAWN));
-	Soldier* player2 = new Soldier(resources->player2, gun2, get_spawn_coordinates(Tile::PLAYER2_SPAWN));
-
-	offsetX = get_spawn_coordinates(Tile::PLAYER1_SPAWN).x;
-	offsetY = get_spawn_coordinates(Tile::PLAYER1_SPAWN).y;
-
-	KillManager* killManager = new KillManager();
-	killManager->subscribe(player1);
-	killManager->subscribe(player2);
-
-	Interface* interf = new Interface();
-
-	sf::Clock clock;
-	std::stringstream ss;
-
+	Spritesheet* player1_spritesheet;
+	Spritesheet* player2_spritesheet;
+	Soldier* player1;
+	Soldier* player2;
+	KillManager* killManager;
+	BulletGenerator* p1_machinegun;
+	BulletGenerator* p2_machinegun;
 	bool p1_takes_viewport = true;
 	bool can_take_viewport = true;
+	TimeCounter* round_time;
+	TimeCounter* round_result_announce;
+	TimeCounter* viewport_tc;
+public:
+	Game(sf::Vector2i screen_size)
+	{
+		this->res = new Resources();
 
-	set_tile(Tile::HEART, heart_last_coords.x, heart_last_coords.y);
-	set_tile(Tile::SPEED, speed_last_coords.x, speed_last_coords.y);
-	set_tile(Tile::MINIGUN, minigun_last_coords.x, minigun_last_coords.y);
-	double t = 5;
-	TimeCounter heart_respawn_time_counter(t);
-	TimeCounter speed_respawn_time_counter(t);
-	TimeCounter minigun_respawn_time_counter(t);
-	TimeCounter round_time(15);
-	TimeCounter round_result_announce(4);
+		this->map = new Map(res->map, screen_size);
+		this->map->
+			set_bg_texture(res->background_texture, screen_size)->
+			set_heart_texture(res->heart_texture)->
+			set_minigun_texture(res->minigun_texture)->
+			set_speed_texture(res->speed_texture)->
+			set_ground_texture(res->ground_texture);
 
-	TimeCounter viewport_tc(4);
-	while (mainWindow.isOpen())
+		this->interf = new Interface(res->font, screen_size);
+
+		this->player1_spritesheet = new Spritesheet(res->player1_texture, 90, 55, 10);
+		this->player2_spritesheet = new Spritesheet(res->player2_texture, 90, 55, 10);
+
+		this->p1_machinegun = new MGBulletGenerator(100, 0.0008, res->bullet_texture, res->bullet_rect);
+		this->p2_machinegun = new MGBulletGenerator(100, 0.0008, res->bullet_texture, res->bullet_rect);
+
+		this->player1 = new Soldier(player1_spritesheet, map->get_pos_by_tile(Map::Tile::PLAYER1_SPAWN));
+		this->player2 = new Soldier(player2_spritesheet, map->get_pos_by_tile(Map::Tile::PLAYER2_SPAWN));
+		this->player1->set_gun(p1_machinegun);
+		this->player2->set_gun(p2_machinegun);
+
+		this->map->get_viewport()->focus(sf::Vector2i(screen_size.x / 2, screen_size.y / 2));
+
+		this->killManager = new KillManager();
+		this->killManager->subscribe(player1);
+		this->killManager->subscribe(player2);
+
+		this->round_time = new TimeCounter(120);
+		this->round_result_announce = new TimeCounter(8);
+		this->viewport_tc = new TimeCounter(4);
+	}
+	~Game()
 	{
 
-#pragma region timer
-		float time = clock.getElapsedTime().asMicroseconds();
-		TimeCounter::update_all_timecounters(time);
-		TicToc::update_all_tic_tocs(time);
-
-
-		if (heart_respawn_time_counter.get_progress() == 1.0)
-		{
-			set_tile(Tile::EMPTY, heart_last_coords.x, heart_last_coords.y);
-			heart_last_coords = get_random_map_coordinate();
-			set_tile(Tile::HEART, heart_last_coords.x, heart_last_coords.y);
-			resources->heart_tile->setFillColor(sf::Color::White);
-		}
-		else
-		{
-			resources->heart_tile->setFillColor(sf::Color(255, 255, 255, 255 * (1 - heart_respawn_time_counter.get_progress())));
-		}
-
-		if (minigun_respawn_time_counter.get_progress() == 1.0)
-		{
-			set_tile(Tile::EMPTY, minigun_last_coords.x, minigun_last_coords.y);
-			minigun_last_coords = get_random_map_coordinate();
-			set_tile(Tile::MINIGUN, minigun_last_coords.x, minigun_last_coords.y);
-			resources->minigun_tile->setFillColor(sf::Color::White);
-		}
-		else
-		{
-			resources->minigun_tile->setFillColor(sf::Color(255, 255, 255, 255 * (1 - minigun_respawn_time_counter.get_progress())));
-		}
-
-		if (speed_respawn_time_counter.get_progress() == 1.0)
-		{
-			set_tile(Tile::EMPTY, speed_last_coords.x, speed_last_coords.y);
-			speed_last_coords = get_random_map_coordinate();
-			set_tile(Tile::SPEED, speed_last_coords.x, speed_last_coords.y);
-			resources->speed_tile->setFillColor(sf::Color::White);
-		}
-		else
-		{
-			resources->speed_tile->setFillColor(sf::Color(255, 255, 255, 255 * (1 - speed_respawn_time_counter.get_progress())));
-		}
-
-		dbg_print_avg_fps(time);
-		clock.restart();
-#pragma endregion
-
-#pragma region events
-		sf::Event event;
-		while (mainWindow.pollEvent(event))
-		{
-			if (event.type == sf::Event::Closed)
-				mainWindow.close();
-		}
-		if (sf::Keyboard::isKeyPressed(sf::Keyboard::Space))
-		{
-			if (can_take_viewport)
-			{
-				p1_takes_viewport = !p1_takes_viewport;
-			}
-			can_take_viewport = false;
-		}
-		else
-		{
-			can_take_viewport = true;
-		}
-
+	}
+	void handle_keyboard_events()
+	{
 		if (sf::Keyboard::isKeyPressed(sf::Keyboard::W))
 		{
 			if (player1->is_on_ground())
@@ -1386,90 +1485,174 @@ int main()
 		{
 			killManager->handle_shot(player2->shoot());
 		}
-#pragma endregion
+		if (sf::Keyboard::isKeyPressed(sf::Keyboard::Space))
+		{
+			if (can_take_viewport)
+			{
+				p1_takes_viewport = !p1_takes_viewport;
+			}
+			can_take_viewport = false;
+		}
+		else
+		{
+			can_take_viewport = true;
+		}
+	}
 
-		player1->update(time);
-		player2->update(time);
-		killManager->update(time);
+	void update(float time)
+	{
+		handle_keyboard_events();
 
+		map->update();
+		player1->update(time, gravity, map);
+		player2->update(time, gravity, map);
+		killManager->update(time, map);
 
 		float p1_x = player1->get_position()->left;
 		float p1_y = player1->get_position()->top;
 		float p2_x = player2->get_position()->left;
 		float p2_y = player2->get_position()->top;
 
+		std::stringstream ss;
+
 		ss.str("");
 		ss << "HP: " << player1->get_hp();
-		interf->set_player1_status(ss.str());
+		interf->set_p1_hp(ss.str(), sf::Vector2f(p1_x - map->get_viewport()->pos().x, p1_y - map->get_viewport()->pos().y - 10));
 		ss.str("");
 		ss << "HP: " << player2->get_hp();
-		interf->set_player2_status(ss.str());
+		interf->set_p2_hp(ss.str(), sf::Vector2f(p2_x - map->get_viewport()->pos().x, p2_y - map->get_viewport()->pos().y - 10));
 		ss.str("");
 		ss << "Player 1\t" << player1->get_score() << " : " << player2->get_score() << "\tPlayer 2";
 		interf->set_score(ss.str());
-		interf->set_time(round_time.get_time_as_sring(true));
+		interf->set_time(round_time->get_time_as_sring(true));
 		ss.str("");
 		ss << "Player 1\n";
+		ss << "HP: " << player1->get_hp() << "\n";
 		ss << "X: " << (int)p1_x << "\n";
 		ss << "Y: " << (int)p1_y << "\n";
-		ss << "Player 2\n";
+		ss << "Gun: " << (player1->is_gun_boosted() ? "boosted" : "common") << "\n";
+		ss << "Speed: " << (player1->is_speed_boosted() ? "boosted" : "common") << "\n";
+		ss << "\nPlayer 2\n";
+		ss << "HP: " << player2->get_hp() << "\n";
 		ss << "X: " << (int)p2_x << "\n";
 		ss << "Y: " << (int)p2_y << "\n";
+		ss << "Gun: " << (player2->is_gun_boosted() ? "boosted" : "common") << "\n";
+		ss << "Speed: " << (player2->is_speed_boosted() ? "boosted" : "common") << "\n";
 		interf->set_debug(ss.str());
 
 
-
-		interf->set_player1_status_pos(p1_x - offsetX, p1_y - offsetY - 10);
-		interf->set_player2_status_pos(p2_x - offsetX, p2_y - offsetY - 10);
-
 		if (p1_takes_viewport)
 		{
-			move_viewport_to(p1_x, p1_y, time);
-			if (viewport_tc.get_progress() == 1.0)
+			map->get_viewport()->move_viewport_to(p1_x, p1_y, time);
+			if (viewport_tc->get_progress() == 1.0)
 			{
 				p1_takes_viewport = false;
-				viewport_tc.reset();
+				viewport_tc->reset();
 			}
 		}
 		else
 		{
-			move_viewport_to(p2_x, p2_y, time);
-			if (viewport_tc.get_progress() == 1.0)
+			map->get_viewport()->move_viewport_to(p2_x, p2_y, time);
+			if (viewport_tc->get_progress() == 1.0)
 			{
 				p1_takes_viewport = true;
-				viewport_tc.reset();
+				viewport_tc->reset();
 			}
 		}
+	}
+	void display_into(sf::RenderWindow* mainWindow)
+	{
+		map->draw_map(mainWindow);
+		mainWindow->draw(*(player1->get_spritesheet()->sprite));
+		mainWindow->draw(*(player2->get_spritesheet()->sprite));
+		mainWindow->draw(*(interf->get_player1_status()));
+		mainWindow->draw(*(interf->get_player2_status()));
+		mainWindow->draw(*(interf->get_score()));
+		mainWindow->draw(*(interf->get_time()));
+		mainWindow->draw(*(interf->get_debug()));
+		killManager->draw_bullets(mainWindow);
 
-		mainWindow.clear(sf::Color::White);
-		mainWindow.draw(*(resources->background_sprite));
-		draw_map(&mainWindow);
-		mainWindow.draw(*(player1->get_spritesheet()->sprite));
-		mainWindow.draw(*(player2->get_spritesheet()->sprite));
-		mainWindow.draw(*(interf->get_player1_status()));
-		mainWindow.draw(*(interf->get_player2_status()));
-		mainWindow.draw(*(interf->get_score()));
-		mainWindow.draw(*(interf->get_time()));
-		mainWindow.draw(*(interf->get_debug()));
-		killManager->draw_bullets(&mainWindow);
-		if (!round_result_announce.started())
+		if (!round_result_announce->started())
 		{
-			if (round_time.get_progress() == 1.0)
+			if (round_time->get_progress() == 1.0)
 			{
 				int s1 = player1->get_score();
 				int s2 = player2->get_score();
 				interf->set_round_result(s1 > s2 ? "PLAYER  1 WON!" : s2 > s1 ? "PLAYER 2 WON!" : "DEAD HEAT!");
-				round_time.reset();
-				round_result_announce.get_progress();
+				round_time->reset();
+				round_result_announce->get_progress();
 			}
 		}
 		else
 		{
-			if (round_result_announce.get_progress() == 1.0)
-				round_result_announce.reset();
+			if (round_result_announce->get_progress() == 1.0)
+			{
+				round_result_announce->reset();
+				player1->respawn();
+				player2->respawn();
+			}
 
-			mainWindow.draw(*(interf->get_round_result()));
+			mainWindow->draw(*(interf->get_round_result()));
 		}
-		mainWindow.display();
 	}
+};
+
+
+const int pool = 500;
+int curr_call = 0;
+double sum_time = 0;
+void dbg_print_avg_fps(float time)
+{
+	curr_call++;
+	if (curr_call <= pool)
+	{
+		sum_time += time;
+	}
+	else
+	{
+		double avg_time = (double)sum_time / (double)pool;
+		std::cout << (1 / (avg_time / 1e6)) << std::endl;
+		curr_call = 0;
+		sum_time = 0;
+	}
+}
+
+int main()
+{
+	const sf::Vector2i screen_size(1600, 800);
+
+	sf::RenderWindow* mainWindow = new sf::RenderWindow(sf::VideoMode(screen_size.x, screen_size.y), "SFML_Duel");
+	mainWindow->setPosition(sf::Vector2i(0, 0));
+	mainWindow->setFramerateLimit(180);
+
+	Game* game = new Game(screen_size);
+
+	sf::Clock clock;
+
+	while (mainWindow->isOpen())
+	{
+		sf::Event event;
+		while (mainWindow->pollEvent(event))
+		{
+			if (event.type == sf::Event::Closed)
+				mainWindow->close();
+		}
+
+		float time = clock.getElapsedTime().asMicroseconds();
+		clock.restart();
+		dbg_print_avg_fps(time);
+		TimeCounter::update_all_timecounters(time);
+		TicToc::update_all_tic_tocs(time);
+
+		game->update(time);
+
+		mainWindow->clear(sf::Color::White);
+		game->display_into(mainWindow);
+		mainWindow->display();
+	}
+
+	delete game;
+	delete mainWindow;
+
+	return 0;
 }
