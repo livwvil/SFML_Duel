@@ -93,6 +93,7 @@ private:
 	static std::vector<TimeCounter*> all_timecounters;
 	bool should_update;
 	bool repeat;
+	int update_calls;
 	void update(float time_microseconds);
 public:
 	TimeCounter(double limit_sec, bool repeat = true);
@@ -103,6 +104,7 @@ public:
 	int get_time_reversed();
 	bool started();
 	bool achieved();
+	double get_update_calls();
 	std::string get_time_as_sring(bool reversed = false);
 	static void update_all_timecounters(float time);
 };
@@ -120,8 +122,10 @@ void TimeCounter::update(float time_microseconds)
 			should_update = false;
 			return;
 		}
+		update_calls = 0;
 	}
 
+	update_calls++;
 	limit_acc_microseconds += time_microseconds;
 
 	if (limit_acc_microseconds >= limit_microseconds)
@@ -131,6 +135,7 @@ void TimeCounter::update(float time_microseconds)
 }
 TimeCounter::TimeCounter(double limit_sec, bool repeat)
 {
+	this->update_calls = 0;
 	this->repeat = repeat;
 	this->limit_acc_microseconds = 0;
 	this->limit_microseconds = limit_sec * 1e6;
@@ -149,10 +154,15 @@ double TimeCounter::get_progress()
 
 	return limit_acc_microseconds / limit_microseconds;
 }
+double TimeCounter::get_update_calls()
+{
+	return update_calls;
+}
 void TimeCounter::reset()
 {
 	limit_acc_microseconds = 0;
 	should_update = false;
+	update_calls = 0;
 }
 int TimeCounter::get_time()
 {
@@ -1397,6 +1407,8 @@ private:
 	TimeCounter* round_time;
 	TimeCounter* round_result_announce;
 	TimeCounter* viewport_tc;
+	TimeCounter* fps_tc;
+	double fps;
 public:
 	Game(sf::Vector2i screen_size)
 	{
@@ -1432,6 +1444,8 @@ public:
 		this->round_time = new TimeCounter(120);
 		this->round_result_announce = new TimeCounter(8);
 		this->viewport_tc = new TimeCounter(4);
+		this->fps_tc = new TimeCounter(1);
+		this->fps = 0;
 	}
 	~Game()
 	{
@@ -1525,8 +1539,15 @@ public:
 		ss << "Player 1\t" << player1->get_score() << " : " << player2->get_score() << "\tPlayer 2";
 		interf->set_score(ss.str());
 		interf->set_time(round_time->get_time_as_sring(true));
+
+		if (fps_tc->get_progress() == 1.0)
+		{
+			this->fps = fps_tc->get_update_calls() / 1.0;
+		}
+
 		ss.str("");
-		ss << "Player 1\n";
+		ss << "FPS: " << fps << "\n";
+		ss << "\nPlayer 1\n";
 		ss << "HP: " << player1->get_hp() << "\n";
 		ss << "X: " << (int)p1_x << "\n";
 		ss << "Y: " << (int)p1_y << "\n";
@@ -1597,26 +1618,6 @@ public:
 	}
 };
 
-
-const int pool = 500;
-int curr_call = 0;
-double sum_time = 0;
-void dbg_print_avg_fps(float time)
-{
-	curr_call++;
-	if (curr_call <= pool)
-	{
-		sum_time += time;
-	}
-	else
-	{
-		double avg_time = (double)sum_time / (double)pool;
-		std::cout << (1 / (avg_time / 1e6)) << std::endl;
-		curr_call = 0;
-		sum_time = 0;
-	}
-}
-
 int main()
 {
 	const sf::Vector2i screen_size(1600, 800);
@@ -1640,7 +1641,6 @@ int main()
 
 		float time = clock.getElapsedTime().asMicroseconds();
 		clock.restart();
-		dbg_print_avg_fps(time);
 		TimeCounter::update_all_timecounters(time);
 		TicToc::update_all_tic_tocs(time);
 
