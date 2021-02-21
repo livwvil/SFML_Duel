@@ -305,7 +305,7 @@ public:
 		return _half;
 	}
 
-	void move_viewport_to(float x, float y, float time)
+	bool move_viewport_to(float x, float y, float time)
 	{
 		if (0 + _half.x > x)
 			x = _half.x;
@@ -322,29 +322,31 @@ public:
 
 		double s_x = abs(_pos.x - x);
 		double s_y = abs(_pos.y - y);
-		int dir_x = x > _pos.x;
-		int dir_y = y > _pos.y;
+		int dir_x = x > _pos.x ? 1 : -1;
+		int dir_y = y > _pos.y ? 1 : -1;
 
-		double rate_v_x = s_x / (s_x + s_y);
+		double rate_v_x = s_x + s_y != 0 ? s_x / (s_x + s_y) : 0;
 		double rate_v_y = 1.0 - rate_v_x;
 
 		double dist = sqrt(s_x * s_x + s_y * s_y);
 		double viewport_movespeed = base_viewport_movespeed * atan(0.003 * dist) * 2 / 3.1415926535;
 
-		double viewport_dx = viewport_movespeed * rate_v_x * (dir_x ? 1 : -1);
-		double viewport_dy = viewport_movespeed * rate_v_y * (dir_y ? 1 : -1);
+		double viewport_dx = viewport_movespeed * rate_v_x * dir_x;
+		double viewport_dy = viewport_movespeed * rate_v_y * dir_y;
 
-		double some_x = viewport_dx * time;
-		double some_y = viewport_dy * time;
+		double some_x = ceil(abs(viewport_dx * time)) * dir_x;
+		double some_y = ceil(abs(viewport_dy * time)) * dir_y;
 
 		x = s_x < some_x ? s_x : some_x;
 		y = s_y < some_y ? s_y : some_y;
 
 		if (s_x < 1 && s_y < 1)
-			return;
+			return true;
 
 		_pos.x += x;
 		_pos.y += y;
+
+		return dist > 70 ? false : true;
 	}
 };
 
@@ -939,7 +941,7 @@ protected:
 	virtual IBullet* create_bullet(float x_pos, float y_pos, bool flight_dir_left) = 0;
 	BulletGenerator() {}
 public:
-	~BulletGenerator() 
+	~BulletGenerator()
 	{
 		delete this->reload_tc;
 	}
@@ -1204,6 +1206,9 @@ public:
 
 	void update(double time, double gravity, Map* map)
 	{
+		if (position->top > 2 * map->get_size_in_pixels().y)
+			respawn();
+
 		on_ground = false;
 
 		if (shooting) dx = 0;
@@ -1387,7 +1392,7 @@ public:
 class Game
 {
 public:
-	const double gravity = 1.0 * 1e-8;
+	const double gravity = 0.95 * 1e-8;
 	const double player_dx = 0.35 * 1e-3;
 	const double player_dy = 0.2 * 1e-2;
 private:
@@ -1404,6 +1409,7 @@ private:
 	BulletGenerator* p2_machinegun;
 	bool p1_takes_viewport = true;
 	bool can_take_viewport = true;
+	bool viewport_arrived = false;
 	TimeCounter* round_time;
 	TimeCounter* round_result_announce;
 	TimeCounter* viewport_tc;
@@ -1564,21 +1570,29 @@ public:
 
 		if (p1_takes_viewport)
 		{
-			map->get_viewport()->move_viewport_to(p1_x, p1_y, time);
-			if (viewport_tc->get_progress() == 1.0)
-			{
-				p1_takes_viewport = false;
-				viewport_tc->reset();
-			}
+			bool arrived = map->get_viewport()->move_viewport_to(p1_x, p1_y, time);
+			viewport_arrived = viewport_arrived || arrived;
+
+			if (viewport_arrived)
+				if (viewport_tc->get_progress() == 1.0)
+				{
+					p1_takes_viewport = false;
+					viewport_arrived = false;
+					viewport_tc->reset();
+				}
 		}
 		else
 		{
-			map->get_viewport()->move_viewport_to(p2_x, p2_y, time);
-			if (viewport_tc->get_progress() == 1.0)
-			{
-				p1_takes_viewport = true;
-				viewport_tc->reset();
-			}
+			bool arrived = map->get_viewport()->move_viewport_to(p2_x, p2_y, time);
+			viewport_arrived = viewport_arrived || arrived;
+
+			if (viewport_arrived)
+				if (viewport_tc->get_progress() == 1.0)
+				{
+					p1_takes_viewport = true;
+					viewport_arrived = false;
+					viewport_tc->reset();
+				}
 		}
 	}
 	void display_into(sf::RenderWindow* mainWindow)
@@ -1618,9 +1632,15 @@ public:
 	}
 };
 
-int main()
+int main(int argc, char** argv)
 {
-	const sf::Vector2i screen_size(1600, 800);
+	int w = 1600, h = 800;
+	if (argc > 1)
+	{
+		w = atoi(argv[1]);
+		h = atoi(argv[2]);
+	}
+	const sf::Vector2i screen_size(w, h);
 
 	sf::RenderWindow* mainWindow = new sf::RenderWindow(sf::VideoMode(screen_size.x, screen_size.y), "SFML_Duel");
 	mainWindow->setPosition(sf::Vector2i(0, 0));
