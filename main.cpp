@@ -936,18 +936,20 @@ public:
 	virtual sf::FloatRect* get_position() = 0;
 };
 
-class MachineGunBullet : public IBullet
+class BaseBullet : public IBullet
 {
-private:
+protected:
 	sf::Sprite* sprite;
 	sf::FloatRect* position;
+	sf::IntRect* bullet_rect;
 	double b_init_speed;
 	double b_init_damage;
 	double b_speed;
 	double b_damage;
 public:
-	MachineGunBullet(double damage, double speed, float x_pos, float y_pos, bool flight_dir_left, sf::Texture* bullet_texture, sf::IntRect* bullet_rect)
+	BaseBullet(double damage, double speed, float x_pos, float y_pos, bool flight_dir_left, sf::Texture* bullet_texture, sf::IntRect* bullet_rect)
 	{
+		this->bullet_rect = bullet_rect;
 		this->b_damage = damage;
 		this->b_speed = flight_dir_left ? -speed : speed;
 		this->b_init_damage = damage;
@@ -964,10 +966,39 @@ public:
 		}
 		this->position = new sf::FloatRect(x_pos, y_pos, bullet_rect->width, bullet_rect->height);
 	}
-	~MachineGunBullet()
+	~BaseBullet()
 	{
 		delete this->sprite;
 		delete this->position;
+	}
+	double get_damage()
+	{
+		return b_damage;
+	}
+	void set_damage(double dmg)
+	{
+		this->b_damage = dmg;
+	}
+	bool is_alive()
+	{
+		return b_damage != 0;
+	}
+	sf::Sprite* get_sprite()
+	{
+		return sprite;
+	}
+	sf::FloatRect* get_position()
+	{
+		return position;
+	}
+};
+
+class MachineGunBullet : public BaseBullet
+{
+public:
+	MachineGunBullet(double damage, double speed, float x_pos, float y_pos, bool flight_dir_left, sf::Texture* bullet_texture, sf::IntRect* bullet_rect)
+		: BaseBullet(damage, speed, x_pos, y_pos, flight_dir_left, bullet_texture, bullet_rect)
+	{
 	}
 
 	void update(double time, Map* map)
@@ -996,25 +1027,49 @@ public:
 
 		this->sprite->setPosition(position->left - map->get_viewport()->pos().x, position->top - map->get_viewport()->pos().y);
 	}
-	double get_damage()
+};
+
+class RicohchetBullet : public BaseBullet
+{
+private:
+	int ricochet_counter;
+public:
+	RicohchetBullet(double damage, double speed, float x_pos, float y_pos, bool flight_dir_left, sf::Texture* bullet_texture, sf::IntRect* bullet_rect)
+		: BaseBullet(damage, speed, x_pos, y_pos, flight_dir_left, bullet_texture, bullet_rect)
 	{
-		return b_damage;
+		ricochet_counter = 5;
 	}
-	void set_damage(double dmg)
+	void update(double time, Map* map)
 	{
-		this->b_damage = dmg;
-	}
-	bool is_alive()
-	{
-		return b_damage != 0;
-	}
-	sf::Sprite* get_sprite()
-	{
-		return sprite;
-	}
-	sf::FloatRect* get_position()
-	{
-		return position;
+		this->position->left += b_speed * time;
+
+		for (int i = position->top / Map::tile_height; i < (position->top + position->height) / Map::tile_height; i++)
+		{
+			for (int j = position->left / Map::tile_width; j < (position->left + position->width) / Map::tile_width; j++)
+			{
+				if ((i >= 0 && i < map->get_size_in_tiles().y) && (j >= 0 && j < map->get_size_in_tiles().x))
+					if (map->is_tile_collision(map->get_tile_by_pos(j, i)))
+					{
+						b_speed = -b_speed;
+
+						if (b_speed < 0)
+						{
+							this->sprite->setTextureRect(sf::IntRect(bullet_rect->left + bullet_rect->width, bullet_rect->top, -bullet_rect->width, bullet_rect->height));
+						}
+						else
+						{
+							this->sprite->setTextureRect(*bullet_rect);
+						}
+
+						ricochet_counter--;
+						if (ricochet_counter == 0)
+							b_damage = 0;
+
+					}
+			}
+		}
+
+		this->sprite->setPosition(position->left - map->get_viewport()->pos().x, position->top - map->get_viewport()->pos().y);
 	}
 };
 
@@ -1052,7 +1107,7 @@ public:
 	}
 };
 
-class MGBulletGenerator : public BulletGenerator
+class MachineGunBulletGenerator : public BulletGenerator
 {
 private:
 	IBullet* create_bullet(float x_pos, float y_pos, bool flight_dir_left)
@@ -1061,7 +1116,26 @@ private:
 		return bullet;
 	}
 public:
-	MGBulletGenerator(double damage, double speed, sf::Texture* bullet_texture, sf::IntRect* bullet_rect)
+	MachineGunBulletGenerator(double damage, double speed, sf::Texture* bullet_texture, sf::IntRect* bullet_rect)
+	{
+		this->init_b_damage = damage;
+		this->init_b_speed = speed;
+		this->bullet_texture = bullet_texture;
+		this->bullet_rect = bullet_rect;
+		this->reload_tc = new TimeCounter(0.05, false);
+	}
+};
+
+class RicochetBulletGenerator : public BulletGenerator
+{
+private:
+	IBullet* create_bullet(float x_pos, float y_pos, bool flight_dir_left)
+	{
+		IBullet* bullet = new RicohchetBullet(init_b_damage, init_b_speed, x_pos, y_pos, flight_dir_left, bullet_texture, bullet_rect);
+		return bullet;
+	}
+public:
+	RicochetBulletGenerator(double damage, double speed, sf::Texture* bullet_texture, sf::IntRect* bullet_rect)
 	{
 		this->init_b_damage = damage;
 		this->init_b_speed = speed;
@@ -1546,8 +1620,8 @@ public:
 		this->player1_spritesheet = new Spritesheet(res->player1_texture, 90, 55, 10);
 		this->player2_spritesheet = new Spritesheet(res->player2_texture, 90, 55, 10);
 
-		this->p1_machinegun = new MGBulletGenerator(150, 0.0008, res->bullet_texture, res->bullet_rect);
-		this->p2_machinegun = new MGBulletGenerator(150, 0.0008, res->bullet_texture, res->bullet_rect);
+		this->p1_machinegun = new RicochetBulletGenerator(150, 0.0008, res->bullet_texture, res->bullet_rect);
+		this->p2_machinegun = new MachineGunBulletGenerator(150, 0.0008, res->bullet_texture, res->bullet_rect);
 
 		this->player1 = new Soldier("player1", player1_spritesheet, map->get_pos_by_tile(Map::Tile::PLAYER1_SPAWN));
 		this->player2 = new Soldier("player2", player2_spritesheet, map->get_pos_by_tile(Map::Tile::PLAYER2_SPAWN));
@@ -1744,7 +1818,7 @@ public:
 			mainWindow->draw(*(interf->get_round_result()));
 		}
 
-		
+
 		sf::FloatRect* pos = player1->get_position();
 		sf::Text* announce_dmg = interf->get_p1_dmg_announce(sf::Vector2f(pos->left - map->get_viewport()->pos().x, pos->top - map->get_viewport()->pos().y));
 		if (announce_dmg != nullptr)
