@@ -428,6 +428,13 @@ public:
 		this->minigun_tile = new sf::RectangleShape(sf::Vector2f(tile_width, tile_height));
 		this->speed_tile = new sf::RectangleShape(sf::Vector2f(tile_width, tile_height));
 	}
+	bool into_map_area(sf::Vector2i pos)
+	{
+		return
+			0 < pos.x && pos.x < size_p.x
+			&&
+			0 < pos.y && pos.y < size_p.y;
+	}
 	void update()
 	{
 		if (heart_respawn_time_counter->get_progress() == 1.0)
@@ -724,8 +731,15 @@ class Interface
 {
 private:
 	sf::Vector2i screen_size;
+
 	sf::Text* p1_hp;
+	sf::Text* p1_dmg_announce;
+	TimeCounter* p1_dmg_announce_tc;
+
 	sf::Text* p2_hp;
+	sf::Text* p2_dmg_announce;
+	TimeCounter* p2_dmg_announce_tc;
+
 	sf::Text* score;
 	sf::Text* time;
 	sf::Text* debug;
@@ -735,8 +749,27 @@ public:
 	Interface(sf::Font* font, sf::Vector2i screen_size)
 	{
 		this->screen_size = screen_size;
+
 		this->p1_hp = new sf::Text();
+		this->p1_dmg_announce_tc = new TimeCounter(0.5, false);
+		this->p1_dmg_announce_tc->reset();
+		this->p1_dmg_announce = new sf::Text();
+		this->p1_dmg_announce->setFont(*(font));
+		this->p1_dmg_announce->setCharacterSize(15);
+		this->p1_dmg_announce->setFillColor(sf::Color(252, 40, 3, 255));
+		this->p1_dmg_announce->setOutlineColor(sf::Color::Black);
+		this->p1_dmg_announce->setOutlineThickness(2);
+
 		this->p2_hp = new sf::Text();
+		this->p2_dmg_announce_tc = new TimeCounter(0.5, false);
+		this->p2_dmg_announce_tc->reset();
+		this->p2_dmg_announce = new sf::Text();
+		this->p2_dmg_announce->setFont(*(font));
+		this->p2_dmg_announce->setCharacterSize(15);
+		this->p2_dmg_announce->setFillColor(sf::Color(252, 40, 3, 255));
+		this->p2_dmg_announce->setOutlineColor(sf::Color::Black);
+		this->p2_dmg_announce->setOutlineThickness(2);
+
 		this->score = new sf::Text();
 		this->time = new sf::Text();
 		this->debug = new sf::Text();
@@ -777,7 +810,13 @@ public:
 	~Interface()
 	{
 		delete this->p1_hp;
+		delete this->p1_dmg_announce;
+		delete this->p1_dmg_announce_tc;
+
 		delete this->p2_hp;
+		delete this->p2_dmg_announce;
+		delete this->p2_dmg_announce_tc;
+
 		delete this->score;
 		delete this->time;
 		delete this->debug;
@@ -816,15 +855,52 @@ public:
 	void set_p2_hp(std::string status, sf::Vector2f pos)
 	{
 		this->p2_hp->setString(status);
-		//this->p2_hp->setPosition(1600 - (p2_hp->getGlobalBounds().width + text_offset), 0.f);
 		this->p2_hp->setPosition(pos);
 	}
 
-	sf::Text* get_player1_status()
+	void set_p1_dmg_announce(std::string dmg)
+	{
+		this->p1_dmg_announce_tc->reset();
+		this->p1_dmg_announce_tc->get_progress();
+		this->p1_dmg_announce->setString("-" + dmg);
+	}
+
+	void set_p2_dmg_announce(std::string dmg)
+	{
+		this->p2_dmg_announce_tc->reset();
+		this->p2_dmg_announce_tc->get_progress();
+		this->p2_dmg_announce->setString("-" + dmg);
+	}
+
+	sf::Text* get_p1_dmg_announce(sf::Vector2f pos)
+	{
+		pos.y -= 30;
+		if (this->p1_dmg_announce_tc->started() && this->p1_dmg_announce_tc->achieved() == false)
+		{
+			this->p1_dmg_announce->setPosition(pos);
+			return this->p1_dmg_announce;
+		}
+
+		return nullptr;
+	}
+
+	sf::Text* get_p2_dmg_announce(sf::Vector2f pos)
+	{
+		pos.y -= 30;
+		if (this->p2_dmg_announce_tc->started() && this->p2_dmg_announce_tc->achieved() == false)
+		{
+			this->p2_dmg_announce->setPosition(pos);
+			return this->p2_dmg_announce;
+		}
+
+		return nullptr;
+	}
+
+	sf::Text* get_p1_hp()
 	{
 		return this->p1_hp;
 	}
-	sf::Text* get_player2_status()
+	sf::Text* get_p2_hp()
 	{
 		return this->p2_hp;
 	}
@@ -844,6 +920,7 @@ public:
 	{
 		return this->round_result;
 	}
+
 };
 
 
@@ -864,6 +941,8 @@ class MachineGunBullet : public IBullet
 private:
 	sf::Sprite* sprite;
 	sf::FloatRect* position;
+	double b_init_speed;
+	double b_init_damage;
 	double b_speed;
 	double b_damage;
 public:
@@ -871,6 +950,8 @@ public:
 	{
 		this->b_damage = damage;
 		this->b_speed = flight_dir_left ? -speed : speed;
+		this->b_init_damage = damage;
+		this->b_init_speed = flight_dir_left ? -speed : speed;
 		this->sprite = new sf::Sprite(*(bullet_texture));
 		this->sprite->setTextureRect(*bullet_rect);
 		if (flight_dir_left)
@@ -900,7 +981,15 @@ public:
 				if ((i >= 0 && i < map->get_size_in_tiles().y) && (j >= 0 && j < map->get_size_in_tiles().x))
 					if (map->is_tile_collision(map->get_tile_by_pos(j, i)))
 					{
-						b_damage = 0;
+						double b_dx = abs(b_speed * time);
+						double penetration_rate = map->tile_width / b_dx;
+						b_damage = b_damage * 0.8 - 10.0 / ceil(penetration_rate);
+						if (b_damage < 0)
+							b_damage = 0;
+						b_speed = b_speed * pow(0.5, 1.0 / floor(penetration_rate));
+						if (b_speed == 0)
+							b_damage = 0;
+
 					}
 			}
 		}
@@ -987,6 +1076,7 @@ public:
 class Soldier
 {
 private:
+	std::string name;
 	Spritesheet* spritesheet;
 	BulletGenerator* gun;
 	sf::FloatRect* position;
@@ -1057,8 +1147,9 @@ private:
 		}
 	}
 public:
-	Soldier(Spritesheet* spritesheet, sf::Vector2f spawn)
+	Soldier(std::string name, Spritesheet* spritesheet, sf::Vector2f spawn)
 	{
+		this->name = name;
 		this->spritesheet = spritesheet;
 		this->gun = nullptr;
 		this->position = new sf::FloatRect(spawn.x, spawn.y, spritesheet->texture_character_width, spritesheet->texture_character_height);
@@ -1085,7 +1176,10 @@ public:
 		delete this->respawn_time_counter;
 		delete this->blinking_tic_toc;
 	}
-
+	std::string get_name()
+	{
+		return name;
+	}
 	void respawn()
 	{
 		this->set_position(spawn_x, spawn_y);
@@ -1206,8 +1300,12 @@ public:
 
 	void update(double time, double gravity, Map* map)
 	{
-		if (position->top > 2 * map->get_size_in_pixels().y)
-			respawn();
+		if (map->into_map_area(sf::Vector2i(position->left, position->top)) == false)
+		{
+			dx = 0;
+			dy = 0;
+			set_position(spawn_x, spawn_y);
+		}
 
 		on_ground = false;
 
@@ -1221,8 +1319,8 @@ public:
 		collision('y', map);
 
 		gun_boosted
-			? gun->set_params(150, 0.0025)
-			: gun->set_params(100, 0.0008);
+			? gun->set_params(300, 0.0025)
+			: gun->set_params(150, 0.0008);
 		speed_boosted
 			? x_speed = 2
 			: x_speed = 0;
@@ -1298,8 +1396,12 @@ class KillManager
 private:
 	std::vector<Soldier*> all_soldiers;
 	std::map<Soldier*, std::vector<IBullet*>*> shots;
+	Interface* interf;
 public:
-	KillManager() {}
+	KillManager(Interface* interf)
+	{
+		this->interf = interf;
+	}
 
 	~KillManager()
 	{
@@ -1362,9 +1464,20 @@ public:
 
 				for (const auto& bullet : *bullets)
 				{
-					if (bullet->get_position()->intersects(*(current_soldier->get_position())))
+					sf::FloatRect pos = *(current_soldier->get_position());
+
+					if (bullet->get_position()->intersects(pos))
 					{
 						bool is_enemy_dead = current_soldier->take_damage(bullet->get_damage());
+
+						if (current_soldier->get_name() == "player1")
+						{
+							interf->set_p1_dmg_announce(std::to_string(bullet->get_damage()));
+						}
+						else
+						{
+							interf->set_p2_dmg_announce(std::to_string(bullet->get_damage()));
+						}
 
 						if (is_enemy_dead)
 							soldier->incr_score();
@@ -1433,17 +1546,17 @@ public:
 		this->player1_spritesheet = new Spritesheet(res->player1_texture, 90, 55, 10);
 		this->player2_spritesheet = new Spritesheet(res->player2_texture, 90, 55, 10);
 
-		this->p1_machinegun = new MGBulletGenerator(100, 0.0008, res->bullet_texture, res->bullet_rect);
-		this->p2_machinegun = new MGBulletGenerator(100, 0.0008, res->bullet_texture, res->bullet_rect);
+		this->p1_machinegun = new MGBulletGenerator(150, 0.0008, res->bullet_texture, res->bullet_rect);
+		this->p2_machinegun = new MGBulletGenerator(150, 0.0008, res->bullet_texture, res->bullet_rect);
 
-		this->player1 = new Soldier(player1_spritesheet, map->get_pos_by_tile(Map::Tile::PLAYER1_SPAWN));
-		this->player2 = new Soldier(player2_spritesheet, map->get_pos_by_tile(Map::Tile::PLAYER2_SPAWN));
+		this->player1 = new Soldier("player1", player1_spritesheet, map->get_pos_by_tile(Map::Tile::PLAYER1_SPAWN));
+		this->player2 = new Soldier("player2", player2_spritesheet, map->get_pos_by_tile(Map::Tile::PLAYER2_SPAWN));
 		this->player1->set_gun(p1_machinegun);
 		this->player2->set_gun(p2_machinegun);
 
 		this->map->get_viewport()->focus(sf::Vector2i(screen_size.x / 2, screen_size.y / 2));
 
-		this->killManager = new KillManager();
+		this->killManager = new KillManager(interf);
 		this->killManager->subscribe(player1);
 		this->killManager->subscribe(player2);
 
@@ -1600,11 +1713,12 @@ public:
 		map->draw_map(mainWindow);
 		mainWindow->draw(*(player1->get_spritesheet()->sprite));
 		mainWindow->draw(*(player2->get_spritesheet()->sprite));
-		mainWindow->draw(*(interf->get_player1_status()));
-		mainWindow->draw(*(interf->get_player2_status()));
+		mainWindow->draw(*(interf->get_p1_hp()));
+		mainWindow->draw(*(interf->get_p2_hp()));
 		mainWindow->draw(*(interf->get_score()));
 		mainWindow->draw(*(interf->get_time()));
 		mainWindow->draw(*(interf->get_debug()));
+
 		killManager->draw_bullets(mainWindow);
 
 		if (!round_result_announce->started())
@@ -1629,6 +1743,17 @@ public:
 
 			mainWindow->draw(*(interf->get_round_result()));
 		}
+
+		
+		sf::FloatRect* pos = player1->get_position();
+		sf::Text* announce_dmg = interf->get_p1_dmg_announce(sf::Vector2f(pos->left - map->get_viewport()->pos().x, pos->top - map->get_viewport()->pos().y));
+		if (announce_dmg != nullptr)
+			mainWindow->draw(*(announce_dmg));
+
+		pos = player2->get_position();
+		announce_dmg = interf->get_p2_dmg_announce(sf::Vector2f(pos->left - map->get_viewport()->pos().x, pos->top - map->get_viewport()->pos().y));
+		if (announce_dmg != nullptr)
+			mainWindow->draw(*(announce_dmg));
 	}
 };
 
