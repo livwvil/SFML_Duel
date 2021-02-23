@@ -1521,7 +1521,7 @@ private:
 	BulletGenerator* p1_machinegun;
 	BulletGenerator* p2_machinegun;
 	bool p1_takes_viewport = true;
-	bool can_take_viewport = true;
+	//bool can_take_viewport = true;
 	bool viewport_arrived = false;
 	TimeCounter* round_time;
 	TimeCounter* round_result_announce;
@@ -1572,6 +1572,14 @@ public:
 	}
 	void handle_keyboard_events()
 	{
+		if (sf::Keyboard::isKeyPressed(sf::Keyboard::A))
+		{
+			player1->set_x_movespeed(-player_dx);
+		}
+		if (sf::Keyboard::isKeyPressed(sf::Keyboard::D))
+		{
+			player1->set_x_movespeed(player_dx);
+		}
 		if (sf::Keyboard::isKeyPressed(sf::Keyboard::W))
 		{
 			if (player1->is_on_ground())
@@ -1579,26 +1587,18 @@ public:
 				player1->set_y_movespeed(-player_dy);
 			}
 		}
-		if (sf::Keyboard::isKeyPressed(sf::Keyboard::A))
-		{
-			player1->set_x_movespeed(-player_dx);
-		}
 		if (sf::Keyboard::isKeyPressed(sf::Keyboard::S))
 		{
 			killManager->handle_shot(player1->shoot());
 		}
-		if (sf::Keyboard::isKeyPressed(sf::Keyboard::D))
-		{
-			player1->set_x_movespeed(player_dx);
-		}
-		if (sf::Keyboard::isKeyPressed(sf::Keyboard::Q))
-		{
-			player1->set_sight(true);
-		}
-		if (sf::Keyboard::isKeyPressed(sf::Keyboard::E))
-		{
-			player1->set_sight(false);
-		}
+		//if (sf::Keyboard::isKeyPressed(sf::Keyboard::Q))
+		//{
+		//	player1->set_sight(true);
+		//}
+		//if (sf::Keyboard::isKeyPressed(sf::Keyboard::E))
+		//{
+		//	player1->set_sight(false);
+		//}
 		if (sf::Keyboard::isKeyPressed(sf::Keyboard::Left))
 		{
 			player2->set_x_movespeed(-player_dx);
@@ -1618,18 +1618,18 @@ public:
 		{
 			killManager->handle_shot(player2->shoot());
 		}
-		if (sf::Keyboard::isKeyPressed(sf::Keyboard::Space))
-		{
-			if (can_take_viewport)
-			{
-				p1_takes_viewport = !p1_takes_viewport;
-			}
-			can_take_viewport = false;
-		}
-		else
-		{
-			can_take_viewport = true;
-		}
+		//if (sf::Keyboard::isKeyPressed(sf::Keyboard::Space))
+		//{
+		//	if (can_take_viewport)
+		//	{
+		//		p1_takes_viewport = !p1_takes_viewport;
+		//	}
+		//	can_take_viewport = false;
+		//}
+		//else
+		//{
+		//	can_take_viewport = true;
+		//}
 	}
 
 	void update(float time)
