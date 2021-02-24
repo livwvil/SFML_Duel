@@ -1560,7 +1560,7 @@ public:
 		this->killManager->subscribe(player1);
 		this->killManager->subscribe(player2);
 
-		this->round_time = new TimeCounter(120);
+		this->round_time = new TimeCounter(300);
 		this->round_result_announce = new TimeCounter(8);
 		this->viewport_tc = new TimeCounter(4);
 		this->fps_tc = new TimeCounter(1);
